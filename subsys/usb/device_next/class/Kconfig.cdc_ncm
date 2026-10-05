@@ -19,6 +19,32 @@ config USBD_CDC_NCM_MAX_DGRAM_PER_NTB
 	help
 	  How many datagrams we are able to receive per NTB.
 
+config USBD_CDC_NCM_RECV_NTB_MAX_SIZE
+	int "Max size of a received NTB"
+	range 2048 65535
+	default 2048
+	help
+	  Largest OUT NTB (dwNtbOutMaxSize) the host may send, in bytes. Room
+	  for several datagrams lets the host aggregate them into one
+	  transfer, together with USBD_CDC_NCM_MAX_DGRAM_PER_NTB.
+
+config USBD_CDC_NCM_SEND_NTB_MAX_SIZE
+	int "Max size of a sent NTB"
+	range 2048 65535
+	default 2048
+	help
+	  Largest IN NTB (dwNtbInMaxSize) the device sends, in bytes.
+
+config USBD_CDC_NCM_SEND_MAX_DGRAM_PER_NTB
+	int "Max number of sent datagrams per NTB"
+	range 1 $(UINT16_MAX)
+	default 1
+	help
+	  More than one makes sending asynchronous: datagrams queued while an
+	  IN transfer is in flight are collected into a second NTB, sent as
+	  soon as the first completes. This takes a second IN buffer and
+	  USBD_CDC_NCM_SEND_NTB_MAX_SIZE must leave room for the datagrams.
+
 config USBD_CDC_NCM_SUPPORT_NTB32
 	bool "Support NTB32 format"
 	help
