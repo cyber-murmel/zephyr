@@ -275,8 +275,8 @@ int llext_lookup_symbol(struct llext_loader *ldr, struct llext *ext, uintptr_t *
 		 * For regular symbols, the link address is obtained by adding st_value to the start
 		 * address of the section in which the target symbol resides.
 		 */
-		*link_addr =
-			(uintptr_t)llext_loaded_sect_ptr(ldr, ext, sym->st_shndx) + sym->st_value;
+		*link_addr = (uintptr_t)llext_loaded_sect_exec_ptr(ldr, ext, sym->st_shndx) +
+			     sym->st_value;
 	} else {
 		LOG_ERR("cannot apply relocation: "
 			"target symbol has unexpected section index %d (%#x)",
@@ -655,7 +655,9 @@ int llext_link(struct llext_loader *ldr, struct llext *ext, const struct llext_l
 			    || i == LLEXT_MEM_VENEER
 #endif
 			    ) {
-				sys_cache_instr_invd_range(ext->mem[i], ext->mem_size[i]);
+				void *exec = (void *)llext_exec_addr(ext, ext->mem[i]);
+
+				sys_cache_instr_invd_range(exec, ext->mem_size[i]);
 			}
 		}
 	}

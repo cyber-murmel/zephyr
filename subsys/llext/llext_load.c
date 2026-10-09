@@ -56,6 +56,20 @@ const void *llext_loaded_sect_ptr(struct llext_loader *ldr, struct llext *ext, u
 	return (const uint8_t *)ext->mem[mem_idx] + ldr->sect_map[sh_ndx].offset;
 }
 
+const void *llext_loaded_sect_exec_ptr(struct llext_loader *ldr, struct llext *ext,
+				       unsigned int sh_ndx)
+{
+	const uint8_t *ptr = llext_loaded_sect_ptr(ldr, ext, sh_ndx);
+
+#ifdef CONFIG_LLEXT_EXEC_ALIAS
+	if (ptr != NULL) {
+		ptr += ext->mem_exec_offset[ldr->sect_map[sh_ndx].mem_idx];
+	}
+#endif
+
+	return ptr;
+}
+
 /*
  * Load basic ELF file data
  */
@@ -871,7 +885,7 @@ static int llext_copy_symbols(struct llext_loader *ldr, struct llext *ext,
 			} else {
 				const void *base;
 
-				base = llext_loaded_sect_ptr(ldr, ext, shndx);
+				base = llext_loaded_sect_exec_ptr(ldr, ext, shndx);
 				if (!base) {
 					/* If the section is not mapped, try to peek.
 					 * Be noisy about it, since this is addressing

@@ -55,6 +55,18 @@ config LLEXT_HEAP_DYNAMIC
 	  does not need LLEXT functionality any more, it should call llext_heap_uninit(),
 	  which releases control of the buffer back to the application.
 
+config LLEXT_EXEC_ALIAS
+	bool "Execute extension code at an alias of its writable address"
+	depends on LLEXT_HEAP_DYNAMIC && HARVARD && XTENSA
+	help
+	  Some memories are written at one address and executed at another, such as
+	  external RAM that the data and the instruction bus map at different
+	  addresses. With this option, llext_heap_init_harvard_exec() takes the
+	  offset from the instruction heap's writable address to its executable
+	  alias: code is copied and patched through the writable address, while
+	  relocations, symbol tables and init functions use the executable one.
+	  Implemented for the Xtensa relocations.
+
 choice LLEXT_HEAP_MANAGEMENT
 	prompt "llext heap memory management"
 	default LLEXT_HEAP_K_HEAP

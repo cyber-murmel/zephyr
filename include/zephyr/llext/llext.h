@@ -135,6 +135,11 @@ struct llext {
 	/** Size of each stored region */
 	size_t mem_size[LLEXT_MEM_COUNT];
 
+#ifdef CONFIG_LLEXT_EXEC_ALIAS
+	/** Offset from each region's writable address to the address it executes at */
+	ptrdiff_t mem_exec_offset[LLEXT_MEM_COUNT];
+#endif
+
 	/** Total llext allocation size */
 	size_t alloc_size;
 
@@ -482,6 +487,29 @@ int llext_heap_init(void *mem, size_t bytes);
  *         or it is and option @kconfig{CONFIG_HARVARD} is not enabled
  */
 int llext_heap_init_harvard(void *instr_mem, size_t instr_bytes, void *data_mem, size_t data_bytes);
+
+/**
+ * @brief Initialize LLEXT heaps dynamically, with code executing at an alias
+ *
+ * Like llext_heap_init_harvard(), for instruction memory that is written at
+ * one address and executed at another, such as external RAM that the data and
+ * the instruction bus map at different addresses. Code is copied and patched
+ * through @p instr_mem, while relocations, symbol tables and init functions use
+ * the same location seen at @p instr_mem + @p exec_offset. The caller keeps the
+ * instruction cache coherent for the executable range where the cache driver
+ * does not.
+ *
+ * @param instr_mem Pointer to instruction memory, at its writable address.
+ * @param instr_bytes Size of instruction memory region, in bytes
+ * @param data_mem Pointer to data memory.
+ * @param data_bytes Size of data memory region, in bytes
+ * @param exec_offset Offset from the writable to the executable address of @p instr_mem
+ *
+ * @returns 0 on success, or a negative error code.
+ * @retval -ENOSYS Option @kconfig{CONFIG_LLEXT_EXEC_ALIAS} is not enabled
+ */
+int llext_heap_init_harvard_exec(void *instr_mem, size_t instr_bytes, void *data_mem,
+				 size_t data_bytes, ptrdiff_t exec_offset);
 
 /**
  * @brief Mark LLEXT heap as uninitialized.
