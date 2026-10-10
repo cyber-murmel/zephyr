@@ -37,4 +37,12 @@ endchoice
 
 endif # PM && TICKLESS_KERNEL
 
+# External RAM through the data cache: S32C1I is not atomic there, as
+# esp_cpu_compare_and_set() in the HAL knows.
+config XTENSA_ATOMIC_EMULATED_START
+	default 0x3c000000
+
+config XTENSA_ATOMIC_EMULATED_END
+	default 0x3e000000
+
 endif # SOC_SERIES_ESP32S3
