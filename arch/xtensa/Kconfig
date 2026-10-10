@@ -29,6 +29,25 @@ config XTENSA_USE_CORE_CRT1
 	  SoC or boards might define their own __start by setting this setting
 	  to false.
 
+config XTENSA_ATOMIC_EMULATED_RANGE
+	bool
+	depends on ATOMIC_OPERATIONS_ARCH
+	help
+	  Some memory does not perform S32C1I atomically, such as external RAM
+	  behind the cache of ESP32 SoCs: two CPUs can both succeed in a
+	  compare-and-set there. Atomic operations on addresses from
+	  XTENSA_ATOMIC_EMULATED_START up to XTENSA_ATOMIC_EMULATED_END take a
+	  lock in internal memory with interrupts masked instead, which makes
+	  spinlocks and atomic variables in that memory safe under SMP.
+
+config XTENSA_ATOMIC_EMULATED_START
+	hex "Start of the memory without atomic S32C1I"
+	depends on XTENSA_ATOMIC_EMULATED_RANGE
+
+config XTENSA_ATOMIC_EMULATED_END
+	hex "End of the memory without atomic S32C1I"
+	depends on XTENSA_ATOMIC_EMULATED_RANGE
+
 config XTENSA_ENABLE_BACKTRACE
 	bool "Backtrace on panic exception"
 	help

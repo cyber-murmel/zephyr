@@ -259,7 +259,7 @@ static ALWAYS_INLINE atomic_val_t atomic_nand(atomic_t *target,
 #elif XCHAL_HAVE_S32C1I
 
 /**
- * @brief Xtensa specific atomic compare-and-set (CAS).
+ * @brief Xtensa specific atomic compare-and-set (CAS) with S32C1I.
  *
  * This utilizes SCOMPARE1 register and s32c1i instruction to
  * perform compare-and-set atomic operation. This will
@@ -276,14 +276,45 @@ static ALWAYS_INLINE atomic_val_t atomic_nand(atomic_t *target,
  * @see atomic_cas.
  */
 static ALWAYS_INLINE
-atomic_val_t xtensa_cas(atomic_t *addr, atomic_val_t oldval,
-			atomic_val_t newval)
+atomic_val_t xtensa_cas_s32c1i(atomic_t *addr, atomic_val_t oldval,
+			       atomic_val_t newval)
 {
 	__asm__ volatile("wsr %1, SCOMPARE1; s32c1i %0, %2, 0"
 			 : "+r"(newval), "+r"(oldval) : "r"(addr) : "memory");
 
 	return newval; /* got swapped with the old memory by s32c1i */
 }
+
+#if defined(CONFIG_XTENSA_ATOMIC_EMULATED_RANGE) || defined(__DOXYGEN__)
+/**
+ * @brief Xtensa specific atomic compare-and-set (CAS).
+ *
+ * As xtensa_cas_s32c1i(), except in the address range of
+ * @kconfig{CONFIG_XTENSA_ATOMIC_EMULATED_RANGE}, where it takes a lock in
+ * internal memory with interrupts masked. Not inlined: every atomic
+ * operation uses it, and the check would grow each of them.
+ *
+ * @param addr Address of atomic variable.
+ * @param oldval Original value to compare against.
+ * @param newval New value to store.
+ *
+ * @return The value at the memory location before CAS.
+ */
+atomic_val_t xtensa_cas(atomic_t *addr, atomic_val_t oldval,
+			atomic_val_t newval);
+#else
+/**
+ * @brief Xtensa specific atomic compare-and-set (CAS).
+ *
+ * @see xtensa_cas_s32c1i
+ */
+static ALWAYS_INLINE
+atomic_val_t xtensa_cas(atomic_t *addr, atomic_val_t oldval,
+			atomic_val_t newval)
+{
+	return xtensa_cas_s32c1i(addr, oldval, newval);
+}
+#endif
 
 /** Implementation of @ref atomic_cas. */
 static ALWAYS_INLINE
