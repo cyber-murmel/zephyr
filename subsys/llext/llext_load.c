@@ -492,6 +492,12 @@ static int llext_map_sections(struct llext_loader *ldr, struct llext *ext,
 	 * requirement among the contained sections will then guarantee that
 	 * all are properly aligned.
 	 *
+	 * An SHT_NOBITS section occupies no file space, so its offset is only
+	 * nominal and need not be aligned. A shared file has an aligned address
+	 * for every section, and the sections of a region keep the distances
+	 * of their offsets (checked above), so the pre-padding is taken from
+	 * the address there.
+	 *
 	 * However, adjusting the region's start address will make the region
 	 * appear larger than it actually is, and might even make it overlap
 	 * with others. To allow for further precise adjustments, the length of
@@ -506,7 +512,8 @@ static int llext_map_sections(struct llext_loader *ldr, struct llext *ext,
 			continue;
 		}
 
-		size_t prepad = region->sh_offset & (region->sh_addralign - 1);
+		size_t anchor = ldr->hdr.e_type == ET_DYN ? region->sh_addr : region->sh_offset;
+		size_t prepad = anchor & (region->sh_addralign - 1);
 
 		if (ldr->hdr.e_type == ET_DYN) {
 			/* Only shared files populate sh_addr fields */
