@@ -50,6 +50,14 @@ config UDC_DWC2_THREAD_PRIORITY
 	help
 	  DWC2 driver thread priority.
 
+config UDC_DWC2_THREAD_PREEMPTIBLE
+	bool "Preemptible driver thread"
+	help
+	  Run the driver thread at the preemptible priority
+	  UDC_DWC2_THREAD_PRIORITY instead of the cooperative one, so that
+	  real-time threads above it are not held off while it processes
+	  transfers (hundreds of microseconds on a busy bulk endpoint).
+
 config UDC_DWC2_USBHS_VBUS_READY_TIMEOUT
 	int "UDC DWC2 USBHS VBUS ready event timeout in ms"
 	depends on SOC_SERIES_NRF54H || SOC_SERIES_NRF54L || SOC_SERIES_NRF71 || SOC_SERIES_NRF92
