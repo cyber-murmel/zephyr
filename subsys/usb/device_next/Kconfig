@@ -67,6 +67,21 @@ config USBD_THREAD_STACK_SIZE
 	help
 	  USB device stack thread stack size in bytes.
 
+config USBD_THREAD_PRIORITY
+	int "USB device stack thread priority"
+	default 8
+	help
+	  USB device stack thread priority, cooperative unless
+	  USBD_THREAD_PREEMPTIBLE.
+
+config USBD_THREAD_PREEMPTIBLE
+	bool "Preemptible USB device stack thread"
+	help
+	  Run the device stack thread at the preemptible priority
+	  USBD_THREAD_PRIORITY instead of the cooperative one, so that
+	  real-time threads above it are not held off while it handles
+	  events.
+
 config USBD_MAX_UDC_MSG
 	int "Maximum number of UDC events"
 	default 10
