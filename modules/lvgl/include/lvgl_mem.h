@@ -15,6 +15,10 @@
 extern "C" {
 #endif
 
+void * lv_mem_add_pool(void * mem, size_t bytes);
+
+void lv_mem_remove_pool(void * pool);
+
 void *lvgl_malloc(size_t size);
 
 void *lvgl_realloc(void *ptr, size_t size);

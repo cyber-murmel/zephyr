@@ -26,6 +26,55 @@ static char lvgl_heap_mem[CONFIG_LV_Z_MEM_POOL_SIZE] HEAP_MEM_ATTRIBUTES;
 static struct sys_heap lvgl_heap;
 static struct k_spinlock lvgl_heap_lock;
 
+void lv_mem_init(void)
+{
+#ifdef CONFIG_LV_Z_MEM_POOL_SYS_HEAP
+	lvgl_heap_init();
+#endif /* CONFIG_LV_Z_MEM_POOL_SYS_HEAP */
+}
+
+void lv_mem_deinit(void)
+{
+	/* Reinitializing the heap clears all allocations, no action needed */
+}
+
+void lv_mem_monitor_core(lv_mem_monitor_t *mon_p)
+{
+	memset(mon_p, 0, sizeof(lv_mem_monitor_t));
+
+#if CONFIG_LV_Z_MEM_POOL_SYS_HEAP
+	struct sys_memory_stats stats;
+
+	lvgl_heap_stats(&stats);
+	mon_p->used_pct =
+		(stats.allocated_bytes * 100) / (stats.allocated_bytes + stats.free_bytes);
+	mon_p->max_used = stats.max_allocated_bytes;
+#else
+	LOG_WRN_ONCE("Memory statistics only supported for CONFIG_LV_Z_MEM_POOL_SYS_HEAP");
+#endif /* CONFIG_LV_Z_MEM_POOL_SYS_HEAP */
+}
+
+lv_result_t lv_mem_test_core(void)
+{
+	/* Not supported for now */
+	return LV_RESULT_OK;
+}
+
+void * lv_mem_add_pool(void * mem, size_t bytes)
+{
+    /*Not supported*/
+    ARG_UNUSED(mem);
+    ARG_UNUSED(bytes);
+    return NULL;
+}
+
+void lv_mem_remove_pool(void * pool)
+{
+    /*Not supported*/
+    ARG_UNUSED(pool);
+    return;
+}
+
 void *lvgl_malloc(size_t size)
 {
 	k_spinlock_key_t key;
