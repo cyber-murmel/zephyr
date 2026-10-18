@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+title: Sitronix ST7703 MIPI DSI panel controller
+
+description: |
+  The Sitronix ST7703 drives TFT panels of up to 720x1440 pixels over MIPI
+  DSI video mode. The driver carries the register settings of the 720x720
+  panel of the WHY2025 badge on 2 data lanes; the video timing comes from
+  the display-timings child node (compatible "zephyr,panel-timing").
+
+compatible: "sitronix,st7703"
+
+include: [mipi-dsi-device.yaml, display-controller.yaml]
+
+properties:
+  reset-gpios:
+    type: phandle-array
+    description: |
+      Reset line, asserted to hold the controller in reset. A software reset
+      is sent instead when absent.
+
+  bl-gpios:
+    type: phandle-array
+    description: Backlight enable line, asserted to light the panel.
+
+  madctl:
+    type: int
+    default: 0x0
+    description: |
+      Memory data access control value. Bit 3 (BGR) swaps red and blue for
+      panels wired in BGR order.
