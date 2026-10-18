@@ -549,6 +549,16 @@
 				bias = <3>;
 				mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
 			};
+
+			test_mipi_dbi_nv3007: nv3007@2b {
+				compatible = "newvision,nv3007";
+				reg = <0x2b>;
+				mipi-max-frequency = <80000000>;
+				width = <428>;
+				height = <142>;
+				madctl = <0xa0>;
+				y-offset = <12>;
+			};
 		};
 
 		test_mipi_dbi_xfr_16bit_write_only {
