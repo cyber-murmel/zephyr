@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+board:
+  name: communicator_badge
+  full_name: Hackaday Communicator Badge
+  vendor: hackaday
+  socs:
+  - name: esp32s3
