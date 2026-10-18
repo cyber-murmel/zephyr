@@ -48,6 +48,7 @@ struct display_esp32_dsi_config {
 	uint16_t width;
 	uint16_t height;
 	uint32_t pixel_format;
+	bool swap_xy;
 };
 
 struct display_esp32_dsi_data {
@@ -596,8 +597,8 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		return -EINVAL;
 	}
 
-	if (x == 0 && y == 0 && write_w == config->width && write_h == config->height &&
-	    desc->pitch == config->width) {
+	if (!config->swap_xy && x == 0 && y == 0 && write_w == config->width &&
+	    write_h == config->height && desc->pitch == config->width) {
 		dw_gdma_link_list_item_t *lli;
 		int8_t index = display_esp32_dsi_index_of(data, buf);
 
@@ -694,14 +695,35 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		data->fb_seeded = true;
 	}
 
-	for (uint16_t row = 0; row < write_h; row++) {
-		uint32_t dst_offset = (y + row) * dst_pitch + (uint32_t)x * bpp;
-		uint32_t src_offset = row * src_pitch;
+	if (config->swap_xy) {
+		/* The panel shows the framebuffer's columns as its rows: pixel (x, y)
+		 * goes to row x, column y.
+		 */
+		for (uint16_t row = 0; row < write_h; row++) {
+			const uint8_t *src = (const uint8_t *)buf + row * src_pitch;
+			uint8_t *dst = fb + (uint32_t)x * dst_pitch + (uint32_t)(y + row) * bpp;
 
-		memcpy(fb + dst_offset, (const uint8_t *)buf + src_offset, (size_t)write_w * bpp);
+			for (uint16_t col = 0; col < write_w; col++) {
+				memcpy(dst, src, bpp);
+				src += bpp;
+				dst += dst_pitch;
+			}
+		}
+
+		sys_cache_data_flush_range(fb + (uint32_t)x * dst_pitch,
+					   (size_t)write_w * dst_pitch);
+	} else {
+		for (uint16_t row = 0; row < write_h; row++) {
+			uint32_t dst_offset = (y + row) * dst_pitch + (uint32_t)x * bpp;
+			uint32_t src_offset = row * src_pitch;
+
+			memcpy(fb + dst_offset, (const uint8_t *)buf + src_offset,
+			       (size_t)write_w * bpp);
+		}
+
+		sys_cache_data_flush_range(fb + (uint32_t)y * dst_pitch,
+					   (size_t)write_h * dst_pitch);
 	}
-
-	sys_cache_data_flush_range(fb + (uint32_t)y * dst_pitch, (size_t)write_h * dst_pitch);
 
 	if (multi && !desc->frame_incomplete) {
 		display_esp32_dsi_flip(data, data->draw_fb);
@@ -1019,6 +1041,9 @@ static int display_esp32_dsi_init(const struct device *dev)
 					   DISPLAY_ESP32_DSI_PANEL_OF)
 
 #define DISPLAY_ESP32_DSI_DEVICE(inst)                                                             \
+	BUILD_ASSERT(!DT_INST_PROP(inst, swap_xy) ||                                               \
+		     DT_INST_PROP(inst, width) == DT_INST_PROP(inst, height),                      \
+		     "swap-xy needs a square display");                                            \
 	static struct display_esp32_dsi_data display_esp32_dsi_data_##inst;                        \
 	static const struct device *const display_esp32_dsi_panels_##inst[] = {                    \
 		DISPLAY_ESP32_DSI_PANEL(inst)};                                                    \
@@ -1033,6 +1058,7 @@ static int display_esp32_dsi_init(const struct device *dev)
 		.width = DT_INST_PROP(inst, width),                                                \
 		.height = DT_INST_PROP(inst, height),                                              \
 		.pixel_format = DT_INST_PROP(inst, pixel_format),                                  \
+		.swap_xy = DT_INST_PROP(inst, swap_xy),                                            \
 	};                                                                                         \
 	DEVICE_DT_INST_DEFINE(inst, display_esp32_dsi_init, NULL, &display_esp32_dsi_data_##inst,  \
 			      &display_esp32_dsi_config_##inst, POST_KERNEL,                       \
