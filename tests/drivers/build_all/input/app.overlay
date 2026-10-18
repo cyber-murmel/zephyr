@@ -361,6 +361,29 @@
 				threshold-windows = "narrow", "wide", "narrow";
 				threshold-midpoints = <3 0 7>;
 			};
+
+			tca8418@11 {
+				compatible = "ti,tca8418";
+				reg = <0x11>;
+				int-gpios = <&test_gpio 0 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+				reset-gpios = <&test_gpio 1 GPIO_ACTIVE_LOW>;
+				row-size = <8>;
+				col-size = <10>;
+
+				keymap {
+					compatible = "input-keymap";
+					keymap = <MATRIX_KEY(0, 0, 0) MATRIX_KEY(7, 9, 1)>;
+					row-size = <8>;
+					col-size = <10>;
+				};
+			};
+
+			tca8418@12 {
+				compatible = "ti,tca8418";
+				reg = <0x12>;
+				row-size = <4>;
+				col-size = <3>;
+			};
 		};
 
 		spi@2 {

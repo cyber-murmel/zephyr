@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+title: TI TCA8418 I2C keypad scan controller
+
+description: |
+  The TCA8418 scans a matrix of up to 8 rows and 10 columns by itself and
+  queues key presses and releases in a FIFO. Each event is reported as
+  INPUT_ABS_X (column), INPUT_ABS_Y (row) and INPUT_BTN_TOUCH (pressed),
+  the convention of the keyboard matrix drivers, so an input-keymap child
+  node can translate them into key codes.
+
+  Rows 0 to row-size - 1 and columns 0 to col-size - 1 are used for the
+  matrix; the other pins stay GPIOs.
+
+compatible: "ti,tca8418"
+
+include: i2c-device.yaml
+
+properties:
+  int-gpios:
+    type: phandle-array
+    description: |
+      Interrupt line (open drain, active low), asserted while key events are
+      queued. The controller is polled every poll-period-ms when this
+      property is absent.
+
+  reset-gpios:
+    type: phandle-array
+    description: |
+      Reset line (active low). The driver pulses it at initialization when
+      present.
+
+  row-size:
+    type: int
+    required: true
+    description: Number of matrix rows, starting from ROW0 (1 to 8).
+
+  col-size:
+    type: int
+    required: true
+    description: Number of matrix columns, starting from COL0 (1 to 10).
+
+  poll-period-ms:
+    type: int
+    default: 20
+    description: Polling period in milliseconds when int-gpios is absent.
+
+examples:
+  - |
+    #include <zephyr/dt-bindings/gpio/gpio.h>
+    #include <zephyr/dt-bindings/input/input-event-codes.h>
+    #include <zephyr/dt-bindings/input/keymap.h>
+
+    &i2c1 {
+      keypad@34 {
+        compatible = "ti,tca8418";
+        reg = <0x34>;
+        int-gpios = <&gpio0 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        reset-gpios = <&gpio1 16 GPIO_ACTIVE_LOW>;
+        row-size = <2>;
+        col-size = <2>;
+
+        keymap {
+          compatible = "input-keymap";
+          keymap = <MATRIX_KEY(0, 0, INPUT_KEY_UP)
+                    MATRIX_KEY(0, 1, INPUT_KEY_DOWN)
+                    MATRIX_KEY(1, 0, INPUT_KEY_ENTER)
+                    MATRIX_KEY(1, 1, INPUT_KEY_ESC)>;
+          row-size = <2>;
+          col-size = <2>;
+        };
+      };
+    };
