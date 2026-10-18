@@ -814,6 +814,7 @@ wemos	WEMOS Electronics
 wetek	WeTek Electronics, limited.
 wexler	Wexler
 whwave	Shenzhen whwave Electronics, Inc.
+why2025	WHY2025 camp badge team
 wi2wi	Wi2Wi, Inc.
 winbond	Winbond Electronics corp.
 winsen	Zhengzhou Winsen Electronics Technology Co., Ltd.
