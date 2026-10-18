@@ -84,6 +84,25 @@ struct display_esp32_dsi_data {
 		__aligned(DW_GDMA_LL_LINK_LIST_ALIGNMENT);
 };
 
+/* The cache write-back masks interrupts for the whole range it is given (esp_cache_msync), and
+ * a frame is a megabyte or more: write large ranges back in pieces, so that interrupts are
+ * never held off long (a UART at a few Mbaud overruns its FIFO within a quarter millisecond).
+ */
+#define DISPLAY_ESP32_DSI_FLUSH_CHUNK 4096U
+
+static void display_esp32_dsi_flush(void *addr, size_t size)
+{
+	uint8_t *p = addr;
+
+	while (size > 0U) {
+		size_t n = MIN(size, (size_t)DISPLAY_ESP32_DSI_FLUSH_CHUNK);
+
+		sys_cache_data_flush_range(p, n);
+		p += n;
+		size -= n;
+	}
+}
+
 static int display_esp32_dsi_writer_enter(struct display_esp32_dsi_data *data)
 {
 	k_spinlock_key_t key = k_spin_lock(&data->lock);
@@ -466,7 +485,7 @@ int display_esp32_dsi_start(const struct device *dev, uint32_t bits_per_pixel)
 			return -ENOMEM;
 		}
 		memset(data->fb[i], 0, data->fb_size);
-		sys_cache_data_flush_range(data->fb[i], data->fb_size);
+		display_esp32_dsi_flush(data->fb[i], data->fb_size);
 	}
 
 	int err = display_esp32_dsi_dma_setup(dev);
@@ -619,7 +638,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 
 			lli = &data->lli[ext];
 
-			sys_cache_data_flush_range((void *)buf, data->fb_size);
+			display_esp32_dsi_flush((void *)buf, data->fb_size);
 
 			if (data->fb_count == 0U) {
 				display_esp32_dsi_describe_lli(data, lli);
@@ -641,7 +660,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			 * frame the DMA picks up is never the stale one still
 			 * sitting in the cache.
 			 */
-			sys_cache_data_flush_range((void *)buf, data->fb_size);
+			display_esp32_dsi_flush((void *)buf, data->fb_size);
 			display_esp32_dsi_present(data, index);
 
 			/* The caller draws the next frame as soon as this call
@@ -690,7 +709,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 
 		if (data->have_last_fb && data->last_fb != data->draw_fb) {
 			memcpy(fb, data->fb[data->last_fb], data->fb_size);
-			sys_cache_data_flush_range(fb, data->fb_size);
+			display_esp32_dsi_flush(fb, data->fb_size);
 		}
 		data->fb_seeded = true;
 	}
@@ -710,8 +729,11 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			}
 		}
 
-		sys_cache_data_flush_range(fb + (uint32_t)x * dst_pitch,
-					   (size_t)write_w * dst_pitch);
+		/* Only the touched part of each framebuffer row goes back to memory. */
+		for (uint16_t col = 0; col < write_w; col++) {
+			display_esp32_dsi_flush(fb + (uint32_t)(x + col) * dst_pitch + (uint32_t)y * bpp,
+						(size_t)write_h * bpp);
+		}
 	} else {
 		for (uint16_t row = 0; row < write_h; row++) {
 			uint32_t dst_offset = (y + row) * dst_pitch + (uint32_t)x * bpp;
@@ -721,8 +743,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			       (size_t)write_w * bpp);
 		}
 
-		sys_cache_data_flush_range(fb + (uint32_t)y * dst_pitch,
-					   (size_t)write_h * dst_pitch);
+		display_esp32_dsi_flush(fb + (uint32_t)y * dst_pitch, (size_t)write_h * dst_pitch);
 	}
 
 	if (multi && !desc->frame_incomplete) {
