@@ -1,0 +1,346 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <espressif/esp32p4/esp32p4.dtsi>
+#include "why2025_badge_esp32p4_hpcore-pinctrl.dtsi"
+#include <zephyr/dt-bindings/display/panel.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/input/keymap.h>
+#include <zephyr/dt-bindings/lvgl/lvgl.h>
+#include <zephyr/dt-bindings/mipi_dsi/mipi_dsi.h>
+#include <espressif/partitions_0x2000_default_16M.dtsi>
+
+/ {
+	model = "WHY2025 Badge ESP32-P4";
+	compatible = "espressif,esp32p4";
+
+	chosen {
+		zephyr,sram = &sramhp;
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,bt-hci = &esp_hosted_mcu_hci;
+		zephyr,display = &dsi_display;
+	};
+
+	aliases {
+		led0 = &blue_led;
+		sdhc0 = &sdhc0;
+		watchdog0 = &wdt0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		blue_led: led_0 {
+			gpios = <&gpio1 19 GPIO_ACTIVE_HIGH>;	/* GPIO51 */
+			label = "Blue LED";
+		};
+	};
+
+	lvgl_keypad: lvgl-keypad {
+		compatible = "zephyr,lvgl-keypad-input";
+		input = <&keymap>;
+		input-codes = <INPUT_KEY_UP INPUT_KEY_DOWN INPUT_KEY_LEFT INPUT_KEY_RIGHT
+			       INPUT_KEY_ENTER INPUT_KEY_ESC INPUT_KEY_BACKSPACE INPUT_KEY_TAB>;
+		lvgl-codes = <LV_KEY_UP LV_KEY_DOWN LV_KEY_LEFT LV_KEY_RIGHT
+			      LV_KEY_ENTER LV_KEY_ESC LV_KEY_BACKSPACE LV_KEY_NEXT>;
+	};
+};
+
+&flash0 {
+	reg = <0x0 DT_SIZE_M(16)>;
+	ranges = <0x0 0x0 DT_SIZE_M(16)>;
+};
+
+/* 256 Mbit in the ESP32-P4NRW16 package */
+&psram0 {
+	size = <DT_SIZE_M(32)>;
+};
+
+/* Pre-v3 silicon: valid CPU frequencies are 90, 180 and 360 MHz */
+&cpu0 {
+	clock-frequency = <DT_FREQ_M(360)>;
+};
+
+&cpu1 {
+	clock-frequency = <DT_FREQ_M(360)>;
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-names = "default";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&coretemp {
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&dma {
+	status = "okay";
+};
+
+&dma_axi {
+	status = "okay";
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+
+	/*
+	 * The interrupt line only reaches header J7 and the reset line is the
+	 * ESP32-C6 enable, so the controller is polled and never reset here.
+	 */
+	keyboard: keyboard@34 {
+		compatible = "ti,tca8418";
+		reg = <0x34>;
+		row-size = <8>;
+		col-size = <10>;
+
+		keymap: keymap {
+			compatible = "input-keymap";
+			keymap = <
+				MATRIX_KEY(0, 0, INPUT_KEY_ESC)
+				/* Square, triangle, cross, circle, cloud, diamond */
+				MATRIX_KEY(0, 1, INPUT_KEY_F1)
+				MATRIX_KEY(0, 2, INPUT_KEY_F2)
+				MATRIX_KEY(0, 3, INPUT_KEY_F3)
+				MATRIX_KEY(0, 4, INPUT_KEY_F4)
+				MATRIX_KEY(0, 5, INPUT_KEY_F5)
+				MATRIX_KEY(0, 6, INPUT_KEY_F6)
+				MATRIX_KEY(0, 7, INPUT_KEY_BACKSPACE)
+				MATRIX_KEY(0, 8, INPUT_KEY_0)
+				MATRIX_KEY(0, 9, INPUT_KEY_MINUS)
+				MATRIX_KEY(1, 0, INPUT_KEY_GRAVE)
+				MATRIX_KEY(1, 1, INPUT_KEY_1)
+				MATRIX_KEY(1, 2, INPUT_KEY_2)
+				MATRIX_KEY(1, 3, INPUT_KEY_3)
+				MATRIX_KEY(1, 4, INPUT_KEY_4)
+				MATRIX_KEY(1, 5, INPUT_KEY_5)
+				MATRIX_KEY(1, 6, INPUT_KEY_6)
+				MATRIX_KEY(1, 7, INPUT_KEY_7)
+				MATRIX_KEY(1, 8, INPUT_KEY_8)
+				MATRIX_KEY(1, 9, INPUT_KEY_9)
+				MATRIX_KEY(2, 0, INPUT_KEY_TAB)
+				MATRIX_KEY(2, 1, INPUT_KEY_Q)
+				MATRIX_KEY(2, 2, INPUT_KEY_W)
+				MATRIX_KEY(2, 3, INPUT_KEY_E)
+				MATRIX_KEY(2, 4, INPUT_KEY_R)
+				MATRIX_KEY(2, 5, INPUT_KEY_T)
+				MATRIX_KEY(2, 6, INPUT_KEY_Y)
+				MATRIX_KEY(2, 7, INPUT_KEY_U)
+				MATRIX_KEY(2, 8, INPUT_KEY_I)
+				MATRIX_KEY(2, 9, INPUT_KEY_O)
+				/* Fn modifier; Zephyr has no Fn key code */
+				MATRIX_KEY(3, 0, INPUT_KEY_RIGHTMETA)
+				MATRIX_KEY(3, 1, INPUT_KEY_A)
+				MATRIX_KEY(3, 2, INPUT_KEY_S)
+				MATRIX_KEY(3, 3, INPUT_KEY_D)
+				MATRIX_KEY(3, 4, INPUT_KEY_F)
+				MATRIX_KEY(3, 5, INPUT_KEY_G)
+				MATRIX_KEY(3, 6, INPUT_KEY_H)
+				MATRIX_KEY(3, 7, INPUT_KEY_J)
+				MATRIX_KEY(3, 8, INPUT_KEY_K)
+				MATRIX_KEY(3, 9, INPUT_KEY_L)
+				MATRIX_KEY(4, 0, INPUT_KEY_LEFTSHIFT)
+				MATRIX_KEY(4, 1, INPUT_KEY_Z)
+				MATRIX_KEY(4, 2, INPUT_KEY_X)
+				MATRIX_KEY(4, 3, INPUT_KEY_C)
+				MATRIX_KEY(4, 4, INPUT_KEY_V)
+				MATRIX_KEY(4, 5, INPUT_KEY_B)
+				MATRIX_KEY(4, 6, INPUT_KEY_N)
+				MATRIX_KEY(4, 7, INPUT_KEY_M)
+				MATRIX_KEY(4, 8, INPUT_KEY_COMMA)
+				MATRIX_KEY(4, 9, INPUT_KEY_DOT)
+				MATRIX_KEY(5, 0, INPUT_KEY_LEFT)
+				MATRIX_KEY(5, 1, INPUT_KEY_DOWN)
+				MATRIX_KEY(5, 2, INPUT_KEY_RIGHT)
+				MATRIX_KEY(5, 3, INPUT_KEY_SLASH)
+				MATRIX_KEY(5, 4, INPUT_KEY_UP)
+				MATRIX_KEY(5, 5, INPUT_KEY_RIGHTSHIFT)
+				MATRIX_KEY(5, 6, INPUT_KEY_SEMICOLON)
+				MATRIX_KEY(5, 7, INPUT_KEY_APOSTROPHE)
+				MATRIX_KEY(5, 8, INPUT_KEY_ENTER)
+				MATRIX_KEY(5, 9, INPUT_KEY_EQUAL)
+				MATRIX_KEY(6, 0, INPUT_KEY_LEFTCTRL)
+				MATRIX_KEY(6, 1, INPUT_KEY_LEFTMETA)
+				MATRIX_KEY(6, 2, INPUT_KEY_LEFTALT)
+				MATRIX_KEY(6, 3, INPUT_KEY_BACKSLASH)
+				/* The space bar closes three matrix positions */
+				MATRIX_KEY(6, 4, INPUT_KEY_SPACE)
+				MATRIX_KEY(6, 5, INPUT_KEY_SPACE)
+				MATRIX_KEY(6, 6, INPUT_KEY_SPACE)
+				MATRIX_KEY(6, 7, INPUT_KEY_RIGHTALT)
+				MATRIX_KEY(6, 8, INPUT_KEY_P)
+				MATRIX_KEY(6, 9, INPUT_KEY_LEFTBRACE)
+				MATRIX_KEY(7, 9, INPUT_KEY_RIGHTBRACE)
+			>;
+			row-size = <8>;
+			col-size = <10>;
+		};
+	};
+
+	/* Its interrupt lines only reach header J7 */
+	imu: imu@69 {
+		compatible = "bosch,bmi270";
+		reg = <0x69>;
+	};
+};
+
+/* Add-on header J7 */
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-names = "default";
+};
+
+/*
+ * LDO channel 1 feeds the 1.8 V flash and is left as the boot ROM set it.
+ * Channel 3 feeds the MIPI DSI PHY, channel 4 the microSD card.
+ */
+&ldo {
+	status = "okay";
+
+	ldo3@3 {
+		regulator-init-microvolt = <2500000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	ldo4@4 {
+		regulator-init-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&sdhc {
+	/* microSD slot; its card detect line is not connected */
+	sdhc0: sdhc@0 {
+		status = "okay";
+		bus-width = <4>;
+		max-bus-freq = <40000000>;
+		clk-pin = <43>;
+		cmd-pin = <44>;
+		d0-pin = <39>;
+		d1-pin = <40>;
+		d2-pin = <41>;
+		d3-pin = <42>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+
+	/* ESP32-C6 running the esp-hosted-mcu slave firmware */
+	sdhc1: sdhc@1 {
+		status = "okay";
+		bus-width = <4>;
+		max-bus-freq = <40000000>;
+		clk-pin = <32>;
+		cmd-pin = <33>;
+		d0-pin = <28>;
+		d1-pin = <31>;
+		d2-pin = <30>;
+		d3-pin = <29>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		esp_hosted_mcu: esp-hosted-mcu@0 {
+			compatible = "espressif,esp-hosted-mcu";
+			reg = <0>;
+			/* ESP32-C6 enable, shared with the keyboard controller reset */
+			reset-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+			status = "okay";
+
+			esp_hosted_mcu_wifi: wifi {
+				compatible = "espressif,esp-hosted-mcu-wifi";
+				status = "okay";
+			};
+
+			esp_hosted_mcu_hci: bt-hci {
+				compatible = "espressif,esp-hosted-mcu-bt-hci";
+				status = "okay";
+			};
+		};
+	};
+};
+
+&mipi_dsi {
+	status = "okay";
+	phy-clock = <1000000000>;
+	dpi-clock-frequency = <47000000>;
+
+	/* 720x720 panel; its backlight is driven by the ESP32-C6 */
+	st7703: panel-controller@0 {
+		compatible = "sitronix,st7703";
+		reg = <0>;
+		data-lanes = <2>;
+		pixel-format = <MIPI_DSI_PIXFMT_RGB565>;
+		width = <720>;
+		height = <720>;
+		/* Inverted by a transistor: high holds the panel in reset */
+		reset-gpios = <&gpio0 17 GPIO_ACTIVE_HIGH>;
+		/* MY: with the transposed scanout (swap-xy) the picture is upright; RGB order */
+		madctl = <0x80>;
+
+		display-timings {
+			compatible = "zephyr,panel-timing";
+			hsync-len = <60>;
+			hback-porch = <120>;
+			hfront-porch = <106>;
+			vsync-len = <4>;
+			vback-porch = <20>;
+			vfront-porch = <20>;
+			hsync-active = <0>;
+			vsync-active = <0>;
+			de-active = <1>;
+			pixelclk-active = <0>;
+		};
+	};
+};
+
+&dsi_display {
+	status = "okay";
+	pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+	width = <720>;
+	height = <720>;
+	/* The panel is mounted turned: it shows the framebuffer's columns as its rows. */
+	swap-xy;
+};

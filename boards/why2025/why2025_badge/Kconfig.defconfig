@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_WHY2025_BADGE_ESP32P4_HPCORE
+
+# Two 720x720 framebuffers for tear-free updates do not fit the stock heap
+configdefault ESP_SPIRAM_HEAP_SIZE
+	default 4194304 if DISPLAY_ESP32_DSI
+
+endif # BOARD_WHY2025_BADGE_ESP32P4_HPCORE

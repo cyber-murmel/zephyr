@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: why2025_badge/esp32c6/hpcore
+name: WHY2025 Badge ESP32-C6
+vendor: why2025
+type: mcu
+arch: riscv
+toolchain:
+  - zephyr
+supported:
+  - gpio
+  - spi
+  - uart
+  - watchdog
+  - entropy
+  - lora
+  - netif:wifi
+  - netif:openthread

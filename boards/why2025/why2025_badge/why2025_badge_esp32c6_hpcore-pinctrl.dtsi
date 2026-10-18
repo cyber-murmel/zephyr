@@ -1,0 +1,35 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/pinctrl/esp-pinctrl-common.h>
+#include <zephyr/dt-bindings/pinctrl/esp32c6-pinctrl.h>
+#include <zephyr/dt-bindings/pinctrl/esp32c6-gpio-sigmap.h>
+
+&pinctrl {
+	/* UART1 of the ESP32-P4 */
+	uart0_default: uart0_default {
+		group1 {
+			pinmux = <UART0_TX_GPIO16>;
+			output-high;
+		};
+
+		group2 {
+			pinmux = <UART0_RX_GPIO17>;
+			bias-pull-up;
+		};
+	};
+
+	/* Ai-Thinker Ra-01H LoRa module */
+	spim2_default: spim2_default {
+		group1 {
+			pinmux = <SPIM2_SCLK_GPIO6>, <SPIM2_CSEL_GPIO4>, <SPIM2_MISO_GPIO2>;
+		};
+
+		group2 {
+			pinmux = <SPIM2_MOSI_GPIO7>;
+			output-low;
+		};
+	};
+};

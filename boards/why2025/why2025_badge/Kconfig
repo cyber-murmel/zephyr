@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config HEAP_MEM_POOL_ADD_SIZE_BOARD
+	int
+	default 4096
+
+config WHY2025_BADGE_USB_TO_C6
+	bool "Connect the USB-C port J8 to the ESP32-C6"
+	depends on BOARD_WHY2025_BADGE_ESP32P4_HPCORE
+	select BOARD_LATE_INIT_HOOK
+	help
+	  The ESP32-P4 selects with GPIO2 whether USB-C port J8 reaches its own
+	  USB OTG controller or the USB-Serial-JTAG of the ESP32-C6. Enable this
+	  to drive GPIO2 high and hand the port to the ESP32-C6, for example to
+	  flash and run firmware on it.
