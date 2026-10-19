@@ -69,6 +69,9 @@ struct display_esp32_dsi_data {
 	bool have_last_fb;
 	bool fb_seeded;
 	bool started;
+	/* Turned panels: the framebuffer rows a frame touched, written back when it ends. */
+	uint16_t dirty_lo, dirty_hi;
+	bool dirty;
 	uint32_t writers;
 	void *prev_buf;
 	intr_handle_t dma_intr;
@@ -579,6 +582,7 @@ int display_esp32_dsi_stop(const struct device *dev)
 	data->fb_count = 0;
 	data->have_last_fb = false;
 	data->fb_seeded = false;
+	data->dirty = false;
 	data->prev_buf = NULL;
 
 	return 0;
@@ -746,10 +750,24 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			}
 		}
 
-		/* Only the touched part of each framebuffer row goes back to memory. */
-		for (uint16_t col = 0; col < write_w; col++) {
-			display_esp32_dsi_flush(fb + (uint32_t)(x + col) * dst_pitch + (uint32_t)y * bpp,
-						(size_t)write_h * bpp);
+		/* A write touches a short piece of many framebuffer rows: writing each back
+		 * cost one cache operation per row. The rows go back together once the frame
+		 * is complete (LVGL writes a frame in bands, the last without
+		 * frame_incomplete), in display_esp32_dsi_flush()'s pieces.
+		 */
+		if (!data->dirty) {
+			data->dirty_lo = x;
+			data->dirty_hi = x + write_w - 1U;
+			data->dirty = true;
+		} else {
+			data->dirty_lo = MIN(data->dirty_lo, x);
+			data->dirty_hi = MAX(data->dirty_hi, x + write_w - 1U);
+		}
+		if (!desc->frame_incomplete) {
+			display_esp32_dsi_flush(fb + (uint32_t)data->dirty_lo * dst_pitch,
+						(size_t)(data->dirty_hi - data->dirty_lo + 1U) *
+							dst_pitch);
+			data->dirty = false;
 		}
 	} else {
 		for (uint16_t row = 0; row < write_h; row++) {
