@@ -39,6 +39,9 @@ LOG_MODULE_REGISTER(display_esp32_dsi, CONFIG_DISPLAY_LOG_LEVEL);
  */
 #define DISPLAY_ESP32_DSI_FRAME_WAIT_MS 100
 
+/* Source rows a transposed write moves at a time: 64 bytes of each framebuffer row at RGB565. */
+#define DISPLAY_ESP32_DSI_SWAP_BAND 32U
+
 struct display_esp32_dsi_config {
 	const struct device *panel;
 	uint8_t dma_channel;
@@ -716,16 +719,30 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 
 	if (config->swap_xy) {
 		/* The panel shows the framebuffer's columns as its rows: pixel (x, y)
-		 * goes to row x, column y.
+		 * goes to row x, column y. In bands of source rows, so that each
+		 * framebuffer row is written in runs rather than one pixel per cache
+		 * line.
 		 */
-		for (uint16_t row = 0; row < write_h; row++) {
-			const uint8_t *src = (const uint8_t *)buf + row * src_pitch;
-			uint8_t *dst = fb + (uint32_t)x * dst_pitch + (uint32_t)(y + row) * bpp;
+		for (uint16_t r0 = 0; r0 < write_h; r0 += DISPLAY_ESP32_DSI_SWAP_BAND) {
+			uint16_t rows = MIN(DISPLAY_ESP32_DSI_SWAP_BAND, write_h - r0);
 
 			for (uint16_t col = 0; col < write_w; col++) {
-				memcpy(dst, src, bpp);
-				src += bpp;
-				dst += dst_pitch;
+				const uint8_t *src = (const uint8_t *)buf +
+						     (uint32_t)r0 * src_pitch + (uint32_t)col * bpp;
+				uint8_t *dst = fb + (uint32_t)(x + col) * dst_pitch +
+					       (uint32_t)(y + r0) * bpp;
+
+				if (bpp == 2U) {
+					uint16_t *d = (uint16_t *)dst;
+
+					for (uint16_t row = 0; row < rows; row++) {
+						d[row] = *(const uint16_t *)(src + row * src_pitch);
+					}
+				} else {
+					for (uint16_t row = 0; row < rows; row++) {
+						memcpy(dst + row * bpp, src + row * src_pitch, bpp);
+					}
+				}
 			}
 		}
 
