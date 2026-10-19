@@ -78,6 +78,13 @@ struct display_esp32_dsi_data {
 	/* Turned panels: the framebuffer rows a frame touched, written back when it ends. */
 	uint16_t dirty_lo, dirty_hi;
 	bool dirty;
+	/* Two framebuffers: the rectangle (framebuffer rows and columns) the frame being drawn
+	 * changed, and the one the frame on screen changed, which the buffer drawn into next
+	 * misses; dmg_prev_all: unknown, all of it.
+	 */
+	uint16_t dmg_r0, dmg_r1, dmg_c0, dmg_c1;
+	uint16_t dmg_prev_r0, dmg_prev_r1, dmg_prev_c0, dmg_prev_c1;
+	bool dmg, dmg_prev, dmg_prev_all;
 	uint32_t writers;
 	void *prev_buf;
 	intr_handle_t dma_intr;
@@ -190,13 +197,19 @@ static void dsi_ppa_rx_setup(dma2d_dev_t *dma, uint32_t ch)
 				     DMA2D_LL_EVENT_RX_DESC_ERROR, true);
 }
 
+/* An RGB565 picture for the engine: rows @p w pixels apart, @p h rows; a block at (x, y). */
+struct dsi_ppa_pic {
+	const void *buf;
+	uint16_t w, h, x, y;
+};
+
 /*
- * The w x h block of RGB565 at @p src (rows @p pitch pixels apart) into the framebuffer @p fb
- * (fb_w x fb_h) transposed: source pixel (col, row) to framebuffer row x + col, column y + row.
- * Waits for the engine; -ETIMEDOUT or -EIO when it did not finish cleanly.
+ * A bw x bh block from @p in to @p out, transposed (source pixel (col, row) to row col, column
+ * row of the output block) or copied as it is. Waits for the engine; -ETIMEDOUT or -EIO when it
+ * did not finish cleanly.
  */
-static int dsi_ppa_transpose(const void *src, uint32_t pitch, uint16_t w, uint16_t h, uint8_t *fb,
-			     uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+static int dsi_ppa_run(const struct dsi_ppa_pic *in, uint16_t bw, uint16_t bh,
+		       const struct dsi_ppa_pic *out, bool transpose)
 {
 	dma2d_dev_t *dma = DMA2D_LL_GET_HW(0);
 	ppa_dev_t *ppa = PPA_LL_GET_HW;
@@ -209,18 +222,18 @@ static int dsi_ppa_transpose(const void *src, uint32_t pitch, uint16_t w, uint16
 	ppa_ll_srm_reset(ppa);
 
 	dsi_ppa_tx_desc = (dma2d_descriptor_align8_t){
-		.vb_size = h,
-		.hb_length = w,
+		.vb_size = bh,
+		.hb_length = bw,
 		.dma2d_en = 1,
 		.suc_eof = 1,
 		.owner = DMA2D_DESCRIPTOR_BUFFER_OWNER_DMA,
-		.va_size = h,
-		.ha_length = pitch,
+		.va_size = in->h,
+		.ha_length = in->w,
 		.pbyte = DMA2D_DESCRIPTOR_PBYTE_2B0_PER_PIXEL,
-		.y = 0,
-		.x = 0,
+		.y = in->y,
+		.x = in->x,
 		.mode = DMA2D_DESCRIPTOR_BLOCK_RW_MODE_SINGLE,
-		.buffer = (void *)src,
+		.buffer = (void *)in->buf,
 		.next = NULL,
 	};
 	/* The RX block size is the engine's to fill in; 0 would raise a descriptor error. */
@@ -230,19 +243,17 @@ static int dsi_ppa_transpose(const void *src, uint32_t pitch, uint16_t w, uint16
 		.dma2d_en = 1,
 		.suc_eof = 1,
 		.owner = DMA2D_DESCRIPTOR_BUFFER_OWNER_DMA,
-		.va_size = fb_h,
-		.ha_length = fb_w,
+		.va_size = out->h,
+		.ha_length = out->w,
 		.pbyte = DMA2D_DESCRIPTOR_PBYTE_2B0_PER_PIXEL,
-		.y = x,
-		.x = y,
+		.y = out->y,
+		.x = out->x,
 		.mode = DMA2D_DESCRIPTOR_BLOCK_RW_MODE_SINGLE,
-		.buffer = fb,
+		.buffer = (void *)out->buf,
 		.next = NULL,
 	};
 	sys_cache_data_flush_range(&dsi_ppa_tx_desc, sizeof(dsi_ppa_tx_desc));
 	sys_cache_data_flush_range(&dsi_ppa_rx_desc, sizeof(dsi_ppa_rx_desc));
-	/* The engine reads the source from memory. */
-	display_esp32_dsi_flush((void *)src, (size_t)pitch * h * 2U);
 
 	ppa_ll_srm_get_dma_dscr_port_mode_block_size(ppa, PPA_SRM_COLOR_MODE_RGB565,
 						    ppa_ll_srm_get_mb_size(ppa), &blk_h, &blk_v);
@@ -261,11 +272,12 @@ static int dsi_ppa_transpose(const void *src, uint32_t pitch, uint16_t w, uint16
 	/* A transpose: 90 degrees, then mirrored in y (measured; 270 degrees mirrored in x
 	 * is the same).
 	 */
-	ppa_ll_srm_set_rotation_angle(ppa, PPA_SRM_ROTATION_ANGLE_90);
+	ppa_ll_srm_set_rotation_angle(ppa, transpose ? PPA_SRM_ROTATION_ANGLE_90
+						     : PPA_SRM_ROTATION_ANGLE_0);
 	ppa_ll_srm_set_scaling_x(ppa, 1, 0);
 	ppa_ll_srm_set_scaling_y(ppa, 1, 0);
 	ppa_ll_srm_enable_mirror_x(ppa, false);
-	ppa_ll_srm_enable_mirror_y(ppa, true);
+	ppa_ll_srm_enable_mirror_y(ppa, transpose);
 	ppa_ll_srm_start(ppa);
 
 	start = k_cycle_get_32();
@@ -277,35 +289,73 @@ static int dsi_ppa_transpose(const void *src, uint32_t pitch, uint16_t w, uint16
 	}
 	dma2d_ll_rx_clear_interrupt_status(dma, DSI_PPA_DMA_CH, UINT32_MAX);
 	if (st == 0U) {
-		LOG_ERR("PPA transpose of %ux%u timed out", w, h);
+		LOG_ERR("PPA block of %ux%u timed out", bw, bh);
 		return -ETIMEDOUT;
 	}
 	if ((st & DMA2D_LL_EVENT_RX_SUC_EOF) == 0U) {
-		LOG_ERR("PPA transpose of %ux%u failed: 0x%x", w, h, st);
+		LOG_ERR("PPA block of %ux%u failed: 0x%x", bw, bh, st);
 		return -EIO;
 	}
 	return 0;
 }
 
-/* A write's block through dsi_ppa_transpose(). */
+/* The engine stalls on a block 32 n + 1 rows high (n > 0; BadgeVMS's compositor splits those
+ * too): such a block goes as two, the first this many rows.
+ */
+static uint16_t dsi_ppa_first_rows(uint16_t h)
+{
+	return (h > 32U && h % 32U == 1U) ? h / 2U : h;
+}
+
+/*
+ * The w x h block of RGB565 at @p src (rows @p pitch pixels apart) into the framebuffer @p fb
+ * (fb_w x fb_h) transposed: source pixel (col, row) to framebuffer row x + col, column y + row.
+ */
 static int dsi_ppa_write(const void *src, uint32_t pitch, uint16_t w, uint16_t h, uint8_t *fb,
 			 uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
 {
-	/* The engine stalls on a block 32 n + 1 rows high (n > 0; BadgeVMS's compositor
-	 * splits those too): two blocks then.
-	 */
-	uint16_t first = (h > 32U && h % 32U == 1U) ? h / 2U : h;
-	int err = dsi_ppa_transpose(src, pitch, w, first, fb, fb_w, fb_h, x, y);
+	uint16_t first = dsi_ppa_first_rows(h);
+	struct dsi_ppa_pic in = {.buf = src, .w = pitch, .h = first};
+	struct dsi_ppa_pic out = {.buf = fb, .w = fb_w, .h = fb_h, .x = y, .y = x};
+	int err;
 
+	/* The engine reads the source from memory. */
+	display_esp32_dsi_flush((void *)src, (size_t)pitch * h * 2U);
+	err = dsi_ppa_run(&in, w, first, &out, true);
 	if (err == 0 && first < h) {
-		err = dsi_ppa_transpose((const uint8_t *)src + (size_t)first * pitch * 2U, pitch, w,
-					h - first, fb, fb_w, fb_h, x, y + first);
+		in.buf = (const uint8_t *)src + (size_t)first * pitch * 2U;
+		in.h = h - first;
+		out.x = y + first;
+		err = dsi_ppa_run(&in, w, h - first, &out, true);
+	}
+	return err;
+}
+
+/* Rows r0..r0 + rows - 1, columns c0..c0 + cols - 1 of one framebuffer into another. */
+static int dsi_ppa_copy(const uint8_t *from, uint8_t *to, uint16_t fb_w, uint16_t fb_h,
+			uint16_t c0, uint16_t r0, uint16_t cols, uint16_t rows)
+{
+	uint16_t first = dsi_ppa_first_rows(rows);
+	struct dsi_ppa_pic in = {.buf = from, .w = fb_w, .h = fb_h, .x = c0, .y = r0};
+	struct dsi_ppa_pic out = {.buf = to, .w = fb_w, .h = fb_h, .x = c0, .y = r0};
+	int err = dsi_ppa_run(&in, cols, first, &out, false);
+
+	if (err == 0 && first < rows) {
+		in.y = r0 + first;
+		out.y = r0 + first;
+		err = dsi_ppa_run(&in, cols, rows - first, &out, false);
 	}
 	return err;
 }
 #else
 static inline int dsi_ppa_write(const void *src, uint32_t pitch, uint16_t w, uint16_t h,
 				uint8_t *fb, uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+{
+	return -ENOTSUP;
+}
+
+static inline int dsi_ppa_copy(const uint8_t *from, uint8_t *to, uint16_t fb_w, uint16_t fb_h,
+			       uint16_t c0, uint16_t r0, uint16_t cols, uint16_t rows)
 {
 	return -ENOTSUP;
 }
@@ -785,9 +835,46 @@ int display_esp32_dsi_stop(const struct device *dev)
 	data->have_last_fb = false;
 	data->fb_seeded = false;
 	data->dirty = false;
+	data->dmg = false;
+	data->dmg_prev_all = true;
 	data->prev_buf = NULL;
 
 	return 0;
+}
+
+/*
+ * Two framebuffers: the one about to be drawn into last held the frame before the one on
+ * screen, so it misses what that frame changed (all of it when that is unknown), copied over
+ * from the frame on screen. On a turned panel the PPA copies (the CPU never touches the
+ * framebuffers there, so DMA writes cannot meet stale cache lines).
+ */
+static void display_esp32_dsi_seed(const struct device *dev, uint8_t *to, const uint8_t *from)
+{
+	const struct display_esp32_dsi_config *config = dev->config;
+	struct display_esp32_dsi_data *data = dev->data;
+	uint8_t bpp = data->bytes_per_pixel;
+	uint32_t pitch = config->width * bpp;
+	uint16_t r0 = 0, r1 = config->height - 1U, c0 = 0, c1 = config->width - 1U;
+
+	if (!data->dmg_prev_all) {
+		if (!data->dmg_prev) {
+			return;
+		}
+		r0 = data->dmg_prev_r0;
+		r1 = data->dmg_prev_r1;
+		c0 = data->dmg_prev_c0;
+		c1 = data->dmg_prev_c1;
+	}
+	if (IS_ENABLED(CONFIG_DISPLAY_ESP32_DSI_PPA) && config->swap_xy && bpp == 2U &&
+	    dsi_ppa_copy(from, to, config->width, config->height, c0, r0, c1 - c0 + 1U,
+			 r1 - r0 + 1U) == 0) {
+		return;
+	}
+	for (uint32_t r = r0; r <= r1; r++) {
+		memcpy(to + r * pitch + (uint32_t)c0 * bpp, from + r * pitch + (uint32_t)c0 * bpp,
+		       (size_t)(c1 - c0 + 1U) * bpp);
+	}
+	display_esp32_dsi_flush(to + (uint32_t)r0 * pitch, (size_t)(r1 - r0 + 1U) * pitch);
 }
 
 static int display_esp32_dsi_write_locked(const struct device *dev, const uint16_t x,
@@ -891,6 +978,8 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			}
 
 			data->prev_buf = (void *)buf;
+			/* The driver's own frames no longer follow what is on screen. */
+			data->dmg_prev_all = true;
 
 			return 0;
 		}
@@ -917,8 +1006,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		}
 
 		if (data->have_last_fb && data->last_fb != data->draw_fb) {
-			memcpy(fb, data->fb[data->last_fb], data->fb_size);
-			display_esp32_dsi_flush(fb, data->fb_size);
+			display_esp32_dsi_seed(dev, fb, data->fb[data->last_fb]);
 		}
 		data->fb_seeded = true;
 	}
@@ -990,7 +1078,33 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		display_esp32_dsi_flush(fb + (uint32_t)y * dst_pitch, (size_t)write_h * dst_pitch);
 	}
 
+	/* What this frame changed, in framebuffer rows and columns. */
+	uint16_t r0 = config->swap_xy ? x : y;
+	uint16_t r1 = r0 + (config->swap_xy ? write_w : write_h) - 1U;
+	uint16_t c0 = config->swap_xy ? y : x;
+	uint16_t c1 = c0 + (config->swap_xy ? write_h : write_w) - 1U;
+
+	if (!data->dmg) {
+		data->dmg_r0 = r0;
+		data->dmg_r1 = r1;
+		data->dmg_c0 = c0;
+		data->dmg_c1 = c1;
+		data->dmg = true;
+	} else {
+		data->dmg_r0 = MIN(data->dmg_r0, r0);
+		data->dmg_r1 = MAX(data->dmg_r1, r1);
+		data->dmg_c0 = MIN(data->dmg_c0, c0);
+		data->dmg_c1 = MAX(data->dmg_c1, c1);
+	}
+
 	if (multi && !desc->frame_incomplete) {
+		data->dmg_prev_r0 = data->dmg_r0;
+		data->dmg_prev_r1 = data->dmg_r1;
+		data->dmg_prev_c0 = data->dmg_c0;
+		data->dmg_prev_c1 = data->dmg_c1;
+		data->dmg_prev = data->dmg;
+		data->dmg_prev_all = false;
+		data->dmg = false;
 		display_esp32_dsi_flip(data, data->draw_fb);
 		data->last_fb = data->draw_fb;
 		data->have_last_fb = true;
