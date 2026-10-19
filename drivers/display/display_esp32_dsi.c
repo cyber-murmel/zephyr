@@ -18,6 +18,12 @@
 
 #include <hal/mipi_dsi_brg_ll.h>
 #include <hal/dw_gdma_ll.h>
+#if defined(CONFIG_DISPLAY_ESP32_DSI_PPA)
+#include <hal/dma2d_ll.h>
+#include <hal/dma2d_types.h>
+#include <hal/ppa_ll.h>
+#include <soc/dma2d_channel.h>
+#endif
 #include <soc/interrupts.h>
 #include <esp_intr_alloc.h>
 
@@ -108,6 +114,202 @@ static void display_esp32_dsi_flush(void *addr, size_t size)
 		size -= n;
 	}
 }
+
+#if defined(CONFIG_DISPLAY_ESP32_DSI_PPA)
+/*
+ * Turned panels through the pixel-processing accelerator: its scale-rotate-mirror engine reads
+ * the caller's buffer and writes the transposed block straight into the framebuffer, fed and
+ * drained by 2D-DMA TX and RX channel 0 (the sequence of ESP-IDF's ppa_srm.c). The block goes
+ * to memory by DMA: the framebuffer needs no cache write-back, the source a write-back first.
+ */
+#define DSI_PPA_DMA_CH     0
+#define DSI_PPA_TIMEOUT_US 100000
+
+static dma2d_descriptor_align8_t dsi_ppa_tx_desc __aligned(CONFIG_DCACHE_LINE_SIZE);
+static dma2d_descriptor_align8_t dsi_ppa_rx_desc __aligned(CONFIG_DCACHE_LINE_SIZE);
+static bool dsi_ppa_ready;
+
+static void dsi_ppa_init(void)
+{
+	dma2d_dev_t *dma = DMA2D_LL_GET_HW(0);
+
+	ppa_ll_enable_bus_clock(true);
+	ppa_ll_reset_register();
+	dma2d_ll_enable_bus_clock(0, true);
+	dma2d_ll_reset_register(0);
+	dma2d_ll_hw_enable(dma, true);
+	dsi_ppa_ready = true;
+}
+
+static void dsi_ppa_tx_setup(dma2d_dev_t *dma, uint32_t ch, uint32_t blk_h, uint32_t blk_v)
+{
+	dma2d_ll_tx_stop(dma, ch);
+	dma2d_ll_tx_abort(dma, ch, true);
+	while (!dma2d_ll_tx_is_reset_avail(dma, ch)) {
+	}
+	dma2d_ll_tx_reset_channel(dma, ch);
+	dma2d_ll_tx_abort(dma, ch, false);
+	dma2d_ll_tx_connect_to_periph(dma, ch, DMA2D_TRIG_PERIPH_PPA_SRM,
+				      SOC_DMA2D_TRIG_PERIPH_PPA_SRM_TX);
+	dma2d_ll_tx_enable_reorder(dma, ch, false);
+	dma2d_ll_tx_enable_dscr_port(dma, ch, true);
+	dma2d_ll_tx_enable_owner_check(dma, ch, false);
+	dma2d_ll_tx_enable_auto_write_back(dma, ch, false);
+	dma2d_ll_tx_enable_eof_mode(dma, ch, true);
+	dma2d_ll_tx_enable_descriptor_burst(dma, ch, true);
+	dma2d_ll_tx_set_data_burst_length(dma, ch, PPA_DATA_BURST_LENGTH_128);
+	dma2d_ll_tx_enable_page_bound_wrap(dma, ch, true);
+	dma2d_ll_tx_set_macro_block_size(dma, ch, DMA2D_MACRO_BLOCK_SIZE_NONE);
+	dma2d_ll_tx_set_dscr_port_block_size(dma, ch, blk_h, blk_v);
+	dma2d_ll_tx_enable_interrupt(dma, ch, UINT32_MAX, false);
+	dma2d_ll_tx_clear_interrupt_status(dma, ch, UINT32_MAX);
+}
+
+static void dsi_ppa_rx_setup(dma2d_dev_t *dma, uint32_t ch)
+{
+	dma2d_ll_rx_stop(dma, ch);
+	dma2d_ll_rx_abort(dma, ch, true);
+	while (!dma2d_ll_rx_is_reset_avail(dma, ch)) {
+	}
+	dma2d_ll_rx_reset_channel(dma, ch);
+	dma2d_ll_rx_abort(dma, ch, false);
+	dma2d_ll_rx_connect_to_periph(dma, ch, DMA2D_TRIG_PERIPH_PPA_SRM,
+				      SOC_DMA2D_TRIG_PERIPH_PPA_SRM_RX);
+	dma2d_ll_rx_enable_reorder(dma, ch, false);
+	dma2d_ll_rx_enable_dscr_port(dma, ch, true);
+	dma2d_ll_rx_enable_owner_check(dma, ch, false);
+	dma2d_ll_rx_set_auto_return_owner(dma, ch, DMA2D_DESCRIPTOR_BUFFER_OWNER_CPU);
+	dma2d_ll_rx_enable_descriptor_burst(dma, ch, true);
+	dma2d_ll_rx_set_data_burst_length(dma, ch, PPA_DATA_BURST_LENGTH_128);
+	dma2d_ll_rx_enable_page_bound_wrap(dma, ch, true);
+	dma2d_ll_rx_set_macro_block_size(dma, ch, DMA2D_MACRO_BLOCK_SIZE_NONE);
+	dma2d_ll_rx_enable_interrupt(dma, ch, UINT32_MAX, false);
+	dma2d_ll_rx_clear_interrupt_status(dma, ch, UINT32_MAX);
+	/* Not routed to the CPU: the status bits are polled. */
+	dma2d_ll_rx_enable_interrupt(dma, ch, DMA2D_LL_EVENT_RX_SUC_EOF |
+				     DMA2D_LL_EVENT_RX_DESC_ERROR, true);
+}
+
+/*
+ * The w x h block of RGB565 at @p src (rows @p pitch pixels apart) into the framebuffer @p fb
+ * (fb_w x fb_h) transposed: source pixel (col, row) to framebuffer row x + col, column y + row.
+ * Waits for the engine; -ETIMEDOUT or -EIO when it did not finish cleanly.
+ */
+static int dsi_ppa_transpose(const void *src, uint32_t pitch, uint16_t w, uint16_t h, uint8_t *fb,
+			     uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+{
+	dma2d_dev_t *dma = DMA2D_LL_GET_HW(0);
+	ppa_dev_t *ppa = PPA_LL_GET_HW;
+	uint32_t blk_h, blk_v, st = 0;
+	uint32_t start;
+
+	if (!dsi_ppa_ready) {
+		dsi_ppa_init();
+	}
+	ppa_ll_srm_reset(ppa);
+
+	dsi_ppa_tx_desc = (dma2d_descriptor_align8_t){
+		.vb_size = h,
+		.hb_length = w,
+		.dma2d_en = 1,
+		.suc_eof = 1,
+		.owner = DMA2D_DESCRIPTOR_BUFFER_OWNER_DMA,
+		.va_size = h,
+		.ha_length = pitch,
+		.pbyte = DMA2D_DESCRIPTOR_PBYTE_2B0_PER_PIXEL,
+		.y = 0,
+		.x = 0,
+		.mode = DMA2D_DESCRIPTOR_BLOCK_RW_MODE_SINGLE,
+		.buffer = (void *)src,
+		.next = NULL,
+	};
+	/* The RX block size is the engine's to fill in; 0 would raise a descriptor error. */
+	dsi_ppa_rx_desc = (dma2d_descriptor_align8_t){
+		.vb_size = 2,
+		.hb_length = 2,
+		.dma2d_en = 1,
+		.suc_eof = 1,
+		.owner = DMA2D_DESCRIPTOR_BUFFER_OWNER_DMA,
+		.va_size = fb_h,
+		.ha_length = fb_w,
+		.pbyte = DMA2D_DESCRIPTOR_PBYTE_2B0_PER_PIXEL,
+		.y = x,
+		.x = y,
+		.mode = DMA2D_DESCRIPTOR_BLOCK_RW_MODE_SINGLE,
+		.buffer = fb,
+		.next = NULL,
+	};
+	sys_cache_data_flush_range(&dsi_ppa_tx_desc, sizeof(dsi_ppa_tx_desc));
+	sys_cache_data_flush_range(&dsi_ppa_rx_desc, sizeof(dsi_ppa_rx_desc));
+	/* The engine reads the source from memory. */
+	display_esp32_dsi_flush((void *)src, (size_t)pitch * h * 2U);
+
+	ppa_ll_srm_get_dma_dscr_port_mode_block_size(ppa, PPA_SRM_COLOR_MODE_RGB565,
+						    ppa_ll_srm_get_mb_size(ppa), &blk_h, &blk_v);
+	dsi_ppa_tx_setup(dma, DSI_PPA_DMA_CH, blk_h, blk_v);
+	dsi_ppa_rx_setup(dma, DSI_PPA_DMA_CH);
+	dma2d_ll_tx_set_desc_addr(dma, DSI_PPA_DMA_CH, (uint32_t)&dsi_ppa_tx_desc);
+	dma2d_ll_rx_set_desc_addr(dma, DSI_PPA_DMA_CH, (uint32_t)&dsi_ppa_rx_desc);
+	dma2d_ll_tx_start(dma, DSI_PPA_DMA_CH);
+	dma2d_ll_rx_start(dma, DSI_PPA_DMA_CH);
+
+	ppa_ll_srm_set_rx_color_mode(ppa, PPA_SRM_COLOR_MODE_RGB565);
+	ppa_ll_srm_enable_rx_byte_swap(ppa, false);
+	ppa_ll_srm_enable_rx_rgb_swap(ppa, false);
+	ppa_ll_srm_configure_rx_alpha(ppa, PPA_ALPHA_NO_CHANGE, 0);
+	ppa_ll_srm_set_tx_color_mode(ppa, PPA_SRM_COLOR_MODE_RGB565);
+	/* A transpose: 90 degrees, then mirrored in y (measured; 270 degrees mirrored in x
+	 * is the same).
+	 */
+	ppa_ll_srm_set_rotation_angle(ppa, PPA_SRM_ROTATION_ANGLE_90);
+	ppa_ll_srm_set_scaling_x(ppa, 1, 0);
+	ppa_ll_srm_set_scaling_y(ppa, 1, 0);
+	ppa_ll_srm_enable_mirror_x(ppa, false);
+	ppa_ll_srm_enable_mirror_y(ppa, true);
+	ppa_ll_srm_start(ppa);
+
+	start = k_cycle_get_32();
+	while (k_cyc_to_us_floor32(k_cycle_get_32() - start) < DSI_PPA_TIMEOUT_US) {
+		st = dma2d_ll_rx_get_interrupt_status(dma, DSI_PPA_DMA_CH);
+		if (st != 0U) {
+			break;
+		}
+	}
+	dma2d_ll_rx_clear_interrupt_status(dma, DSI_PPA_DMA_CH, UINT32_MAX);
+	if (st == 0U) {
+		LOG_ERR("PPA transpose of %ux%u timed out", w, h);
+		return -ETIMEDOUT;
+	}
+	if ((st & DMA2D_LL_EVENT_RX_SUC_EOF) == 0U) {
+		LOG_ERR("PPA transpose of %ux%u failed: 0x%x", w, h, st);
+		return -EIO;
+	}
+	return 0;
+}
+
+/* A write's block through dsi_ppa_transpose(). */
+static int dsi_ppa_write(const void *src, uint32_t pitch, uint16_t w, uint16_t h, uint8_t *fb,
+			 uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+{
+	/* The engine stalls on a block 32 n + 1 rows high (n > 0; BadgeVMS's compositor
+	 * splits those too): two blocks then.
+	 */
+	uint16_t first = (h > 32U && h % 32U == 1U) ? h / 2U : h;
+	int err = dsi_ppa_transpose(src, pitch, w, first, fb, fb_w, fb_h, x, y);
+
+	if (err == 0 && first < h) {
+		err = dsi_ppa_transpose((const uint8_t *)src + (size_t)first * pitch * 2U, pitch, w,
+					h - first, fb, fb_w, fb_h, x, y + first);
+	}
+	return err;
+}
+#else
+static inline int dsi_ppa_write(const void *src, uint32_t pitch, uint16_t w, uint16_t h,
+				uint8_t *fb, uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+{
+	return -ENOTSUP;
+}
+#endif /* CONFIG_DISPLAY_ESP32_DSI_PPA */
 
 static int display_esp32_dsi_writer_enter(struct display_esp32_dsi_data *data)
 {
@@ -721,7 +923,14 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		data->fb_seeded = true;
 	}
 
-	if (config->swap_xy) {
+	if (IS_ENABLED(CONFIG_DISPLAY_ESP32_DSI_PPA) && config->swap_xy && bpp == 2U) {
+		int err = dsi_ppa_write(buf, desc->pitch, write_w, write_h, fb, config->width,
+					config->height, x, y);
+
+		if (err != 0) {
+			return err;
+		}
+	} else if (config->swap_xy) {
 		/* The panel shows the framebuffer's columns as its rows: pixel (x, y)
 		 * goes to row x, column y. In bands of source rows, so that each
 		 * framebuffer row is written in runs rather than one pixel per cache
@@ -857,6 +1066,12 @@ static int display_esp32_dsi_read_locked(const struct device *dev, const uint16_
 	}
 
 	for (uint16_t row = 0; row < desc->height; row++) {
+#if defined(CONFIG_DISPLAY_ESP32_DSI_PPA)
+		/* The PPA writes the framebuffer behind the cache. */
+		sys_cache_data_invd_range((void *)(fb + (size_t)(y + row) * src_pitch +
+						   (size_t)x * bpp),
+					  (size_t)desc->width * bpp);
+#endif
 		memcpy((uint8_t *)buf + (size_t)row * dst_pitch,
 		       fb + (size_t)(y + row) * src_pitch + (size_t)x * bpp,
 		       (size_t)desc->width * bpp);
