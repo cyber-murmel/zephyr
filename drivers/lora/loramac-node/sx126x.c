@@ -134,6 +134,7 @@ static int sx126x_spi_transceive(uint8_t *req_tx, uint8_t *req_rx,
 	}
 
 	if (req_len >= 1 && req_tx[0] != RADIO_SET_SLEEP) {
+		dev_data.last_cmd = req_tx[0];
 		SX126xWaitOnBusy();
 	}
 
@@ -399,6 +400,7 @@ void SX126xWakeup(void)
 		return;
 	}
 
+	dev_data.last_cmd = RADIO_GET_STATUS;
 	LOG_DBG("Waiting for device...");
 	SX126xWaitOnBusy();
 	LOG_DBG("Device ready");

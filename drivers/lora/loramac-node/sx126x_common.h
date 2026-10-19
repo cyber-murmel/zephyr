@@ -56,6 +56,10 @@ struct sx126x_data {
 	RadioOperatingModes_t mode;
 	/* serialises the ready/transfer/busy sequence of one bus access */
 	struct k_sem bus_lock;
+	/* opcode of the last command, for the BUSY wait without a BUSY line */
+	uint8_t last_cmd;
+	/* polls the IRQ status without a DIO1 line */
+	struct k_work_delayable dio1_poll_work;
 };
 
 void sx126x_reset(struct sx126x_data *dev_data);

@@ -1684,6 +1684,9 @@ static int sx126x_init(const struct device *dev)
 #ifdef CONFIG_LORA_SX126X_NATIVE_STANDALONE
 
 #define SX126X_INIT(inst, is_1261)						\
+	BUILD_ASSERT(DT_INST_NODE_HAS_PROP(inst, busy_gpios) &&		\
+		     DT_INST_NODE_HAS_PROP(inst, dio1_gpios),		\
+		     "this backend needs busy-gpios and dio1-gpios");	\
 	static struct sx126x_data sx126x_data_##inst;				\
 										\
 	static const struct sx126x_hal_config sx126x_config_##inst = {		\
