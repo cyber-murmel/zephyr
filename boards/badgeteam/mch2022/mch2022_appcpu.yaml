@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: mch2022/esp32/appcpu
+name: MCH2022 badge APPCPU
+type: mcu
+arch: xtensa
+toolchain:
+  - zephyr
+supported:
+  - uart
+testing:
+  ignore_tags:
+    - net
+    - bluetooth
+    - flash
+    - cpp
+    - posix
+    - watchdog
+    - logging
+    - kernel
+    - pm
+    - gpio
+    - crypto
+    - eeprom
+    - heap
+    - cmsis_rtos
+    - jwt
+    - zdsp
+vendor: badgeteam
