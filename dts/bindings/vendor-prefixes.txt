@@ -105,6 +105,7 @@ axentia	Axentia Technologies AB
 axis	Axis Communications AB
 azoteq	Azoteq (Pty) Ltd
 azw	Shenzhen AZW Technology Co., Ltd.
+badgeteam	Badge.team
 baikal	BAIKAL ELECTRONICS, JSC
 bananapi	BIPAI KEJI LIMITED
 barth	Barth Elektronik GmbH
