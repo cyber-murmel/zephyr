@@ -234,10 +234,13 @@ static int IRAM_ATTR spi_esp32_transfer(const struct device *dev)
 				return -ENOMEM;
 			}
 			memcpy(tx_temp, &ctx->tx_buf[0], dma_len_tx);
-		} else if (!ctx->tx_buf && ctx->rx_buf) {
+		} else if (!ctx->tx_buf && ctx->rx_buf && !hal_dev->half_duplex) {
 			/* RX-only transfer: allocate zero-filled TX buffer.
 			 * In loopback configurations (GPIO matrix or external wire),
 			 * SDO must actively output zeros so SDI receives zeros.
+			 * Not in half duplex: there the TX buffer would add a write
+			 * phase before the read, which the ESP32's DMA cannot do in
+			 * one transaction.
 			 */
 			tx_temp = k_calloc(dma_len_rx, sizeof(uint8_t));
 			if (!tx_temp) {
