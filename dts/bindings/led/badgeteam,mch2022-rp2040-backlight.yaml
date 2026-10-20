@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  MCH2022 badge LCD backlight, dimmed by the RP2040 coprocessor
+
+  Must be a child of a badgeteam,mch2022-rp2040 node. The backlight is LED 0;
+  the coprocessor turns it fully on when it starts.
+
+compatible: "badgeteam,mch2022-rp2040-backlight"
