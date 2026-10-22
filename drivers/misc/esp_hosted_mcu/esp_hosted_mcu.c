@@ -295,6 +295,14 @@ static int esp_hosted_mcu_resp_status(const Rpc *resp)
 		return resp->payload.resp_wifi_ap_get_sta_aid.resp;
 	case RpcId_Resp_FeatureControl:
 		return resp->payload.resp_feature_control.resp;
+	case RpcId_Resp_OTABegin:
+		return resp->payload.resp_ota_begin.resp;
+	case RpcId_Resp_OTAWrite:
+		return resp->payload.resp_ota_write.resp;
+	case RpcId_Resp_OTAEnd:
+		return resp->payload.resp_ota_end.resp;
+	case RpcId_Resp_OTAActivate:
+		return resp->payload.resp_ota_activate.resp;
 	default:
 		return 0;
 	}
@@ -633,6 +641,67 @@ int esp_hosted_mcu_send_frame(esp_hosted_mcu_if_type_t if_type, uint8_t if_num, 
 	k_mutex_unlock(&esp_hosted_mcu_tx_lock);
 
 	return ret;
+}
+
+/*
+ * Erasing a whole OTA partition before the first write takes the
+ * coprocessor several seconds, longer than the default RPC timeout.
+ */
+#define ESP_HOSTED_MCU_OTA_BEGIN_TIMEOUT (30000)
+
+static int esp_hosted_mcu_ota_rpc(uint32_t msg_id, pb_size_t tag, int32_t timeout)
+{
+	Rpc req = Rpc_init_zero;
+	Rpc resp = Rpc_init_zero;
+
+	req.msg_id = msg_id;
+	req.which_payload = tag;
+
+	return esp_hosted_mcu_rpc_call(&req, &resp, timeout);
+}
+
+int esp_hosted_mcu_ota_begin(void)
+{
+	return esp_hosted_mcu_ota_rpc(RpcId_Req_OTABegin, Rpc_req_ota_begin_tag,
+				      ESP_HOSTED_MCU_OTA_BEGIN_TIMEOUT);
+}
+
+int esp_hosted_mcu_ota_write(const uint8_t *buf, size_t len)
+{
+	static PB_BYTES_ARRAY_T(ESP_HOSTED_MCU_OTA_CHUNK_SIZE) chunk;
+	Rpc req = Rpc_init_zero;
+	Rpc resp = Rpc_init_zero;
+
+	if (len == 0 || len > ESP_HOSTED_MCU_OTA_CHUNK_SIZE) {
+		return -EINVAL;
+	}
+
+	/* Calls are serialized by the RPC lock, which also covers the chunk. */
+	k_mutex_lock(&esp_hosted_mcu_rpc_lock, K_FOREVER);
+	chunk.size = len;
+	memcpy(chunk.bytes, buf, len);
+
+	req.msg_id = RpcId_Req_OTAWrite;
+	req.which_payload = Rpc_req_ota_write_tag;
+	req.payload.req_ota_write.ota_data = (pb_bytes_array_t *)&chunk;
+
+	int ret = esp_hosted_mcu_rpc_call(&req, &resp, ESP_HOSTED_MCU_RPC_TIMEOUT);
+
+	k_mutex_unlock(&esp_hosted_mcu_rpc_lock);
+
+	return ret;
+}
+
+int esp_hosted_mcu_ota_end(void)
+{
+	return esp_hosted_mcu_ota_rpc(RpcId_Req_OTAEnd, Rpc_req_ota_end_tag,
+				      ESP_HOSTED_MCU_RPC_TIMEOUT);
+}
+
+int esp_hosted_mcu_ota_activate(void)
+{
+	return esp_hosted_mcu_ota_rpc(RpcId_Req_OTAActivate, Rpc_req_ota_activate_tag,
+				      ESP_HOSTED_MCU_RPC_TIMEOUT);
 }
 
 uint32_t esp_hosted_mcu_fw_version(void)
