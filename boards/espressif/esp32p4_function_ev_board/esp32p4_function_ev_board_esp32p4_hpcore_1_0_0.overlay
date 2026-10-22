@@ -1,0 +1,41 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Revision 1.0.0: the engineering board V1.0B (2023.12.08, ESP32-P4 rev v0.0 with 32 MB of
+ * PSRAM). The console is on the CP2102N (UART0), and the ESP32-C6's SDIO DAT0/DAT1 reach P4
+ * GPIO49/50, which later boards give to Ethernet.
+ */
+
+/ {
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+	};
+};
+
+/* Rev v0.0 cannot calibrate its CPLL again: 200 MHz from the 400 MHz the ROM set up. */
+&cpu0 {
+	clock-frequency = <DT_FREQ_M(200)>;
+};
+
+&cpu1 {
+	clock-frequency = <DT_FREQ_M(200)>;
+};
+
+&psram0 {
+	size = <DT_SIZE_M(32)>;
+};
+
+&sdhc1 {
+	d0-pin = <49>;
+	d1-pin = <50>;
+};
+
+&eth {
+	status = "disabled";
+};
+
+&mdio {
+	status = "disabled";
+};
