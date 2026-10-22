@@ -42,6 +42,11 @@
 /* Upper boundary of user-usable SRAM */
 #define DRAM_USER_END DRAM_SHARED_BUFFERS_END
 
+/* Start of the ESP-IDF bootloader's loader IRAM, which its loader keeps while
+ * it loads an application (IDF asserts this address in bootloader.memory.ld.in)
+ */
+#define IDF_BOOTLOADER_IRAM_LOADER_SEG_START 0x4086E610
+
 /* Safety margin between MCUboot segments and ROM stack */
 #define BOOTLOADER_STACK_OVERHEAD      0x2000
 

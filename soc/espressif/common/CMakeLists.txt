@@ -70,15 +70,21 @@ endif()
 
 message("-- Espressif HAL path: ${ESP_IDF_PATH}")
 
-if((CONFIG_ESP_SIMPLE_BOOT OR CONFIG_MCUBOOT) AND NOT (CONFIG_SOC_ESP32C5_LPCORE OR CONFIG_SOC_ESP32C6_LPCORE OR CONFIG_SOC_ESP32P4_LPCORE))
+if((CONFIG_ESP_SIMPLE_BOOT OR CONFIG_MCUBOOT OR CONFIG_ESP_IDF_BOOTLOADER) AND NOT (CONFIG_SOC_ESP32C5_LPCORE OR CONFIG_SOC_ESP32C6_LPCORE OR CONFIG_SOC_ESP32P4_LPCORE))
   if(CONFIG_BUILD_OUTPUT_BIN)
     set(ELF2IMAGE_ARG "")
-    if(NOT CONFIG_MCUBOOT)
+    if(CONFIG_ESP_SIMPLE_BOOT)
       set(ELF2IMAGE_ARG "--ram-only-header")
     endif()
 
+    if(CONFIG_ESP_IDF_BOOTLOADER)
+      set(ESPTOOL_COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/esp_idf_elf2image.py)
+    else()
+      set(ESPTOOL_COMMAND esptool)
+    endif()
+
     set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
-      COMMAND esptool
+      COMMAND ${ESPTOOL_COMMAND}
       ARGS --chip ${CONFIG_SOC} elf2image ${ELF2IMAGE_ARG}
       --flash-mode dio
       --flash-freq ${CONFIG_ESPTOOLPY_FLASHFREQ}
@@ -161,6 +167,10 @@ if(NOT CONFIG_SOC_ESP32C5_LPCORE AND NOT CONFIG_SOC_ESP32C6_LPCORE AND NOT CONFI
 endif()
 zephyr_sources_ifdef(CONFIG_ESP32_PPA esp_ppa.c)
 zephyr_sources(instr_mem.c)
+if(CONFIG_ESP_IDF_BOOTLOADER)
+  zephyr_include_directories(${ESP_IDF_PATH}/components/esp_app_format/include)
+  zephyr_sources(esp_idf_app_desc.c)
+endif()
 
 if(CONFIG_SOC_HAS_TIMING_FUNCTIONS AND NOT CONFIG_BOARD_HAS_TIMING_FUNCTIONS)
   zephyr_sources_ifdef(CONFIG_TIMING_FUNCTIONS soc_timing.c)
