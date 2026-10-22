@@ -93,6 +93,7 @@
 #include <esp32p4/rom/rtc.h>
 #include <soc/dport_access.h>
 #include <hal/clk_tree_ll.h>
+#include <hal/efuse_hal.h>
 #include <esp_private/esp_pmu.h>
 #endif
 
