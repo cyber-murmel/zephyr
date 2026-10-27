@@ -53,9 +53,13 @@ int hardware_init(void)
 {
 	int err = 0;
 
-	/* Clear the CPU1 boot address and reset CPU1 into the ROM wait loop. */
+	/* Clear the CPU1 boot address and reset CPU1 into the ROM wait loop. A
+	 * restart stalls CPU1 and the stall survives the reset: release it, or
+	 * an image that leaves CPU1 alone hangs early in its boot.
+	 */
 	ets_set_appcpu_boot_addr(0);
 	esp_cpu_reset(1);
+	esp_cpu_unstall(1);
 
 	soc_hw_init();
 	ana_reset_config();
