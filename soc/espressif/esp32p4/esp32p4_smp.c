@@ -229,6 +229,8 @@ void soc_per_core_init_hook(void)
 	if (esp_cpu_get_core_id() == 0) {
 		return;
 	}
+	/* As for CPU0 in __esp_platform_app_start(). */
+	esp_cpu_branch_prediction_enable();
 	esp_core_intr_matrix_clear();
 #ifdef CONFIG_SMP
 	register_ipi();
