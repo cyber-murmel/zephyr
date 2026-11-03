@@ -76,6 +76,8 @@ struct mipi_dbi_spi_data {
 	k_timeout_t te_delay;
 	atomic_t in_active_area;
 	struct gpio_callback te_cb_data;
+	/* Set once configure_te() armed the TE GPIO: only then does a write wait for it */
+	bool te_configured;
 #endif
 	/* Used for 3 wire mode */
 	uint16_t spi_byte;
@@ -368,7 +370,7 @@ static int mipi_dbi_spi_write_display(const struct device *dev,
 	struct mipi_dbi_spi_data *data = dev->data;
 
 	/* Wait for TE signal, otherwise transferring can begin */
-	if (!atomic_get(&data->in_active_area)) {
+	if (data->te_configured && (atomic_get(&data->in_active_area) == 0)) {
 		ret = k_sem_take(&data->te_signal, K_FOREVER);
 		if (ret < 0) {
 			return ret;
@@ -624,6 +626,7 @@ static int mipi_dbi_spi_configure_te(const struct device *dev,
 	data->te_delay = delay_us;
 	atomic_set(&data->in_active_area, 0);
 	k_sem_init(&data->te_signal, 0, 1);
+	data->te_configured = true;
 
 	return ret;
 }
