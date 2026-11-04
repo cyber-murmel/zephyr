@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_MCH2022_ESP32_PROCPU && FPGA
+
+# After its reset and done lines on the RP2040
+config FPGA_INIT_PRIORITY
+	default 81
+
+# A load runs on the system work queue, through both I2C and SPI
+config SYSTEM_WORKQUEUE_STACK_SIZE
+	default 1536
+
+endif
