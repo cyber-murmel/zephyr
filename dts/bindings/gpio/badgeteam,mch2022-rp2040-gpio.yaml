@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  The MCH2022 badge's FPGA lines on its RP2040 coprocessor
+
+  Must be a child of a badgeteam,mch2022-rp2040 node. Pin 0 is the FPGA's
+  CRESET_B, an output that releases it when high. Pin 1 is an input, low
+  when the FPGA's CDONE is high. Each access is an I2C transfer, so these
+  pins have no interrupts and cannot be used from an interrupt handler.
+
+compatible: "badgeteam,mch2022-rp2040-gpio"
+
+include: gpio-controller.yaml
+
+properties:
+  "#gpio-cells":
+    const: 2
+
+gpio-cells:
+  - pin
+  - flags

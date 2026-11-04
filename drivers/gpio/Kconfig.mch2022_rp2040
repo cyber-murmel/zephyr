@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config GPIO_MCH2022_RP2040
+	bool "MCH2022 badge FPGA lines on the RP2040"
+	default y
+	depends on DT_HAS_BADGETEAM_MCH2022_RP2040_GPIO_ENABLED
+	depends on MFD_MCH2022_RP2040
+	help
+	  Enable the driver for the MCH2022 badge's FPGA reset and done lines,
+	  which its RP2040 coprocessor holds and reads over I2C.
+
+config GPIO_MCH2022_RP2040_INIT_PRIORITY
+	int "Init priority"
+	default 80
+	depends on GPIO_MCH2022_RP2040
+	help
+	  Device driver initialization priority, after the coprocessor.
