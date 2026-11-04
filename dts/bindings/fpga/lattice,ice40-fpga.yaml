@@ -6,3 +6,12 @@ description: Lattice iCE40 FPGA SPI based driver
 compatible: "lattice,ice40-fpga"
 
 include: lattice,ice40-fpga-base.yaml
+
+properties:
+  creset-hold:
+    type: boolean
+    description: |
+      Keep CRESET_B asserted while no bitstream is loaded: at init, on the way into a load, after
+      a failed load, and after fpga_off(), when fpga_on() refuses until the next load. For an
+      iCE40 that shares its SPI bus: released with SPI_CS high, it boots as an SPI controller and
+      drives the bus.

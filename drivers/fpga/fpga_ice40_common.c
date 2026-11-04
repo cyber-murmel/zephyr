@@ -54,12 +54,20 @@ static int fpga_ice40_on_off(const struct device *dev, bool on)
 
 	k_mutex_lock(&data->lock, K_FOREVER);
 
+	if (on && config->creset_hold && !data->loaded) {
+		ret = -EACCES;
+		goto unlock;
+	}
+
 	ret = gpio_pin_configure_dt(&config->creset, on ? GPIO_OUTPUT_HIGH : GPIO_OUTPUT_LOW);
 	if (ret < 0) {
 		goto unlock;
 	}
 
 	data->on = on;
+	if (!on && config->creset_hold) {
+		data->loaded = false;
+	}
 	ret = 0;
 
 unlock:
@@ -110,7 +118,8 @@ int fpga_ice40_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	ret = gpio_pin_configure_dt(&config->creset, GPIO_OUTPUT_HIGH);
+	ret = gpio_pin_configure_dt(&config->creset,
+				    config->creset_hold ? GPIO_OUTPUT_LOW : GPIO_OUTPUT_HIGH);
 	if (ret < 0) {
 		LOG_ERR("failed to configure CRESET: %d", ret);
 		return ret;

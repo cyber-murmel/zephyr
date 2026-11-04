@@ -67,7 +67,8 @@ static void fpga_ice40_load_handler(struct k_work *item)
 
 	LOG_DBG("Initializing GPIO");
 	ret = gpio_pin_configure_dt(&config->cdone, GPIO_INPUT) ||
-	      gpio_pin_configure_dt(&config->creset, GPIO_OUTPUT_HIGH) ||
+	      gpio_pin_configure_dt(&config->creset,
+				    config->creset_hold ? GPIO_OUTPUT_LOW : GPIO_OUTPUT_HIGH) ||
 	      gpio_pin_configure_dt(&config->bus.config.cs.gpio, GPIO_OUTPUT_HIGH);
 	__ASSERT(ret == 0, "Failed to initialize GPIO: %d", ret);
 
@@ -170,7 +171,9 @@ static void fpga_ice40_load_handler(struct k_work *item)
 	LOG_INF("Loaded image with CRC32 0x%08x", crc);
 
 unlock:
-	(void)gpio_pin_configure_dt(&config->creset, GPIO_OUTPUT_HIGH);
+	(void)gpio_pin_configure_dt(&config->creset, ret < 0 && config->creset_hold
+							     ? GPIO_OUTPUT_LOW
+							     : GPIO_OUTPUT_HIGH);
 	(void)gpio_pin_configure_dt(&config->bus.config.cs.gpio, GPIO_OUTPUT_HIGH);
 
 	work_item->result = ret;
