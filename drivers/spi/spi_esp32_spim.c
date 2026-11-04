@@ -202,7 +202,8 @@ static void spi_esp32_dma_tx_start(const struct device *dev, uint8_t *buf, size_
 }
 #endif /* SOC_GDMA_SUPPORTED */
 
-static int IRAM_ATTR spi_esp32_transfer(const struct device *dev)
+/* Sets up the next chunk and starts it; spi_esp32_transfer_end() once the hardware is done. */
+static int IRAM_ATTR spi_esp32_transfer_start(const struct device *dev)
 {
 	struct spi_esp32_data *data = dev->data;
 	const struct spi_esp32_config *cfg = dev->config;
@@ -392,12 +393,32 @@ static int IRAM_ATTR spi_esp32_transfer(const struct device *dev)
 	}
 
 	/* send data */
+	data->tx_temp = tx_temp;
+	data->rx_temp = rx_temp;
+	data->transfer_len_bytes = transfer_len_bytes;
+	data->transfer_len_frames = transfer_len_frames;
+	data->transfer_running = true;
 	spi_hal_user_start(hal);
 	spi_context_update_tx(&data->ctx, data->dfs, transfer_len_frames);
 
-	while (!spi_hal_usr_is_done(hal)) {
-		/* nop */
-	}
+	return 0;
+
+free:
+	k_free(tx_temp);
+	k_free(rx_temp);
+
+	return err;
+}
+
+/* The hardware is done with a chunk: what it read goes to the buffers. */
+static void IRAM_ATTR spi_esp32_transfer_end(const struct device *dev)
+{
+	struct spi_esp32_data *data = dev->data;
+	const struct spi_esp32_config *cfg = dev->config;
+	spi_hal_context_t *hal = &data->hal;
+	__maybe_unused spi_hal_trans_config_t *hal_trans = &data->trans_config;
+	struct spi_context *ctx = &data->ctx;
+	size_t transfer_len_bytes = data->transfer_len_bytes;
 
 #if defined(SOC_GDMA_SUPPORTED)
 	if (cfg->dma_enabled) {
@@ -420,17 +441,33 @@ static int IRAM_ATTR spi_esp32_transfer(const struct device *dev)
 		spi_hal_fetch_result(hal);
 	}
 
-	if (rx_temp) {
-		memcpy(&ctx->rx_buf[0], rx_temp, transfer_len_bytes);
+	if (data->rx_temp) {
+		memcpy(&ctx->rx_buf[0], data->rx_temp, transfer_len_bytes);
 	}
 
-	spi_context_update_rx(&data->ctx, data->dfs, transfer_len_frames);
+	spi_context_update_rx(&data->ctx, data->dfs, data->transfer_len_frames);
 
-free:
-	k_free(tx_temp);
-	k_free(rx_temp);
+	k_free(data->tx_temp);
+	k_free(data->rx_temp);
+	data->transfer_running = false;
+}
 
-	return err;
+static __maybe_unused int spi_esp32_transfer(const struct device *dev)
+{
+	struct spi_esp32_data *data = dev->data;
+	int err = spi_esp32_transfer_start(dev);
+
+	if (err != 0) {
+		return err;
+	}
+
+	while (!spi_hal_usr_is_done(&data->hal)) {
+		/* nop */
+	}
+
+	spi_esp32_transfer_end(dev);
+
+	return 0;
 }
 
 #ifdef CONFIG_ESP32_SPI_TARGET
@@ -568,11 +605,23 @@ static void IRAM_ATTR spi_esp32_isr(void *arg)
 	}
 #endif /* CONFIG_ESP32_SPI_TARGET */
 
-	do {
-		spi_esp32_transfer(dev);
-	} while (spi_esp32_transfer_ongoing(data));
+	int err = 0;
 
-	spi_esp32_complete(dev, data, cfg->spi, 0);
+	/* What brought us here: the end of a chunk, or transceive() asking for the first one. */
+	spi_ll_clear_int_stat(cfg->spi);
+
+	if (data->transfer_running) {
+		spi_esp32_transfer_end(dev);
+	}
+
+	if (spi_esp32_transfer_ongoing(data)) {
+		err = spi_esp32_transfer_start(dev);
+		if (err == 0) {
+			return;
+		}
+	}
+
+	spi_esp32_complete(dev, data, cfg->spi, err);
 
 #if CONFIG_PM
 	spi_esp32_pm_policy_state_lock_put(dev);
@@ -1055,6 +1104,9 @@ static int transceive(const struct device *dev,
 			 */
 			spi_ll_disable_int(cfg->spi);
 			spi_ll_clear_int_stat(cfg->spi);
+			if (data->transfer_running) {
+				spi_esp32_transfer_end(dev);
+			}
 			spi_context_cs_control(&data->ctx, false);
 #ifdef CONFIG_PM
 			spi_esp32_pm_policy_state_lock_put(dev);

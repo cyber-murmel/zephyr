@@ -67,6 +67,12 @@ struct spi_esp32_data {
 	spi_hal_timing_conf_t timing_config;
 	spi_hal_dev_config_t dev_config;
 	spi_hal_trans_config_t trans_config;
+	/* The chunk under way, from spi_esp32_transfer_start() to its end. */
+	uint8_t *tx_temp;
+	uint8_t *rx_temp;
+	size_t transfer_len_bytes;
+	size_t transfer_len_frames;
+	bool transfer_running;
 #ifdef CONFIG_ESP32_SPI_TARGET
 	spi_slave_hal_context_t target_hal;
 	bool target_mode;
