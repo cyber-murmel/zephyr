@@ -25,4 +25,11 @@ config UDC_RPI_PICO_THREAD_PRIORITY
 	help
 	  Device controller driver thread priority.
 
+config UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN
+	bool "Double buffered bulk IN endpoints"
+	help
+	  Keep two packets ready on bulk IN endpoints of 64 bytes while a transfer has that much
+	  left, so that the host does not get a NAK between packets. This takes twice the DPRAM
+	  on those endpoints and allows higher bulk IN throughput.
+
 endif # UDC_RPI_PICO

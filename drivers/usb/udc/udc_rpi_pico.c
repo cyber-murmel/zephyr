@@ -42,7 +42,22 @@ struct rpi_pico_config {
 struct rpi_pico_ep_data {
 	void *buf;
 	uint8_t next_pid;
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+	/* Bulk IN of 64 bytes: the controller takes the two buffers in turn. */
+	bool two_buffers;
+	/* Buffers holding a packet, the one to fill next, the one the controller ends next. */
+	uint8_t armed;
+	uint8_t fill_id;
+	uint8_t done_id;
+	/* Bytes of the transfer in those buffers. */
+	uint8_t in_hw;
+#endif
 };
+
+/* The bits of buffer 1 in the buffer control register are those of buffer 0, shifted. */
+#define USB_BUF_CTRL_BUF1_SHIFT 16U
+#define USB_BUF_CTRL_BOTH_AVAIL                                                                    \
+	(USB_BUF_CTRL_AVAIL | (USB_BUF_CTRL_AVAIL << USB_BUF_CTRL_BUF1_SHIFT))
 
 enum rpi_pico_event_type {
 	/* Setup packet received */
@@ -225,7 +240,20 @@ static void rpi_pico_ep_cancel(const struct device *dev, const uint8_t ep)
 	uint32_t buf_ctrl;
 
 	buf_ctrl = read_buf_ctrl_reg(dev, ep);
-	if (!(buf_ctrl & USB_BUF_CTRL_AVAIL)) {
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+	{
+		struct rpi_pico_ep_data *const ep_data = get_ep_data(dev, ep);
+
+		if (ep_data->two_buffers) {
+			/* Packets that did not go out leave their data toggles to the next ones. */
+			ep_data->next_pid ^=
+				__builtin_popcount(buf_ctrl & USB_BUF_CTRL_BOTH_AVAIL) & 1U;
+			ep_data->armed = 0U;
+			ep_data->in_hw = 0U;
+		}
+	}
+#endif
+	if (!(buf_ctrl & USB_BUF_CTRL_BOTH_AVAIL)) {
 		/* The buffer is not used by the controller */
 		udc_ep_set_busy(ep_cfg, false);
 		return;
@@ -237,7 +265,7 @@ static void rpi_pico_ep_cancel(const struct device *dev, const uint8_t ep)
 		}
 	}
 
-	buf_ctrl &= ~USB_BUF_CTRL_AVAIL;
+	buf_ctrl &= ~USB_BUF_CTRL_BOTH_AVAIL;
 	write_buf_ctrl_reg(dev, ep, buf_ctrl);
 
 	if (abort_handshake_supported) {
@@ -285,6 +313,102 @@ static int rpi_pico_prep_rx(const struct device *dev,
 	return 0;
 }
 
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+/*
+ * Two packets ready and an interrupt for each: the buffer that just went out gets its next packet
+ * while the controller sends the other one, so the host's next token finds data if the interrupt
+ * takes less than a packet's time. An interrupt per two buffers cannot do that: the token after
+ * them meets an empty endpoint, a NAK, and the host comes back much later.
+ *
+ * The controller writes the half of the buffer control register of the buffer it finished: each
+ * half is written on its own here. Call these with interrupts locked.
+ */
+static mem_addr_t two_buf_ctrl_reg(const struct device *dev, const uint8_t ep, const uint8_t id)
+{
+	return get_buf_ctrl_reg(dev, ep) + 2U * id;
+}
+
+static void two_buf_arm(const struct device *dev, const struct net_buf *const buf,
+			const struct udc_ep_config *const cfg,
+			struct rpi_pico_ep_data *const ep_data, const size_t len)
+{
+	uint16_t buf_ctrl = len | USB_BUF_CTRL_FULL;
+	mem_addr_t reg;
+
+	if (ep_data->armed == 0U) {
+		/* The controller is idle: from buffer 0 again, whichever would have been next. */
+		ep_data->fill_id = 0U;
+		ep_data->done_id = 0U;
+		buf_ctrl |= USB_BUF_CTRL_SEL;
+	}
+	reg = two_buf_ctrl_reg(dev, cfg->addr, ep_data->fill_id);
+
+	dpram_memcpy((uint8_t *)ep_data->buf + 64U * ep_data->fill_id, buf->data + ep_data->in_hw,
+		     len);
+	buf_ctrl |= ep_data->next_pid ? USB_BUF_CTRL_DATA1_PID : USB_BUF_CTRL_DATA0_PID;
+	ep_data->next_pid ^= 1U;
+
+	sys_write16(buf_ctrl, reg);
+	/* As in rpi_pico_prep_tx(). */
+	arch_nop();
+	arch_nop();
+	arch_nop();
+	sys_write16(buf_ctrl | USB_BUF_CTRL_AVAIL, reg);
+
+	ep_data->fill_id ^= 1U;
+	ep_data->in_hw += len;
+	ep_data->armed++;
+}
+
+static void two_buf_fill(const struct device *dev, const struct net_buf *const buf,
+			 const struct udc_ep_config *const cfg,
+			 struct rpi_pico_ep_data *const ep_data)
+{
+	while (ep_data->armed < 2U && buf->len > ep_data->in_hw) {
+		two_buf_arm(dev, buf, cfg, ep_data, MIN(cfg->mps, buf->len - ep_data->in_hw));
+	}
+}
+
+static void two_buf_status(const struct device *dev, struct udc_ep_config *const cfg,
+			   struct rpi_pico_ep_data *const ep_data)
+{
+	struct rpi_pico_data *priv = udc_get_private(dev);
+	struct net_buf *buf = udc_buf_peek(cfg);
+
+	/* The status of a packet ended here along with the one before: both are done. */
+	if (buf == NULL || ep_data->armed == 0U) {
+		return;
+	}
+
+	while (ep_data->armed > 0U) {
+		const uint16_t buf_ctrl =
+			sys_read16(two_buf_ctrl_reg(dev, cfg->addr, ep_data->done_id));
+		const size_t len = buf_ctrl & USB_BUF_CTRL_LEN_MASK;
+
+		if (buf_ctrl & USB_BUF_CTRL_AVAIL) {
+			break;
+		}
+		net_buf_pull(buf, len);
+		ep_data->in_hw -= len;
+		ep_data->done_id ^= 1U;
+		ep_data->armed--;
+	}
+
+	two_buf_fill(dev, buf, cfg, ep_data);
+	if (ep_data->armed > 0U) {
+		return;
+	}
+
+	if (udc_ep_buf_has_zlp(buf)) {
+		udc_ep_buf_clear_zlp(buf);
+		two_buf_arm(dev, buf, cfg, ep_data, 0U);
+	} else {
+		atomic_set_bit(&priv->xfer_finished, udc_ep_to_bnum(cfg->addr));
+		k_event_post(&priv->events, BIT(RPI_PICO_EVT_XFER_FINISHED));
+	}
+}
+#endif
+
 static int rpi_pico_prep_tx(const struct device *dev,
 			    struct net_buf *const buf, struct udc_ep_config *const cfg)
 {
@@ -294,12 +418,26 @@ static int rpi_pico_prep_tx(const struct device *dev,
 	size_t len;
 
 	buf_ctrl = read_buf_ctrl_reg(dev, cfg->addr);
-	if (buf_ctrl & USB_BUF_CTRL_AVAIL) {
+	if (buf_ctrl & USB_BUF_CTRL_BOTH_AVAIL) {
 		LOG_ERR("ep 0x%02x buffer is used by the controller", cfg->addr);
 		return -EBUSY;
 	}
 
 	lock_key = irq_lock();
+
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+	if (ep_data->two_buffers) {
+		ep_data->armed = 0U;
+		ep_data->in_hw = 0U;
+		if (buf->len == 0U) {
+			two_buf_arm(dev, buf, cfg, ep_data, 0U);
+		} else {
+			two_buf_fill(dev, buf, cfg, ep_data);
+		}
+		irq_unlock(lock_key);
+		return 0;
+	}
+#endif
 
 	len = MIN(cfg->mps, buf->len);
 	dpram_memcpy(ep_data->buf, buf->data, len);
@@ -490,6 +628,12 @@ static void rpi_pico_handle_buff_status_in(const struct device *dev, const uint8
 	struct net_buf *buf;
 	size_t len;
 
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+	if (get_ep_data(dev, ep)->two_buffers) {
+		two_buf_status(dev, ep_cfg, get_ep_data(dev, ep));
+		return;
+	}
+#endif
 	buf = udc_buf_peek(ep_cfg);
 	if (buf == NULL) {
 		LOG_ERR("No buffer for ep 0x%02x", ep);
@@ -774,7 +918,17 @@ static int udc_rpi_pico_ep_enable(const struct device *dev,
 				   (type << EP_CTRL_BUFFER_TYPE_LSB);
 		size_t blocks = DIV_ROUND_UP(cfg->mps, 64U);
 
-		err = sys_mem_blocks_alloc(config->mem_block, blocks, &ep_data->buf);
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+		ep_data->two_buffers = USB_EP_DIR_IS_IN(cfg->addr) && type == USB_EP_TYPE_BULK &&
+				       cfg->mps == 64U;
+		ep_data->armed = 0U;
+		ep_data->in_hw = 0U;
+		if (ep_data->two_buffers) {
+			blocks = 2U;
+			ep_ctrl |= EP_CTRL_DOUBLE_BUFFERED_BITS;
+		}
+#endif
+		err = sys_mem_blocks_alloc_contiguous(config->mem_block, blocks, &ep_data->buf);
 		if (err != 0) {
 			LOG_ERR("Failed to allocate %zu memory blocks for ep 0x%02x",
 				cfg->addr, blocks);
@@ -804,8 +958,13 @@ static int udc_rpi_pico_ep_disable(const struct device *dev,
 	if (USB_EP_GET_IDX(cfg->addr) != 0) {
 		size_t blocks = DIV_ROUND_UP(cfg->mps, 64U);
 
+#if defined(CONFIG_UDC_RPI_PICO_DOUBLE_BUFFER_BULK_IN)
+		if (ep_data->two_buffers) {
+			blocks = 2U;
+		}
+#endif
 		write_ep_ctrl_reg(dev, cfg->addr, 0UL);
-		err = sys_mem_blocks_free(config->mem_block, blocks, &ep_data->buf);
+		err = sys_mem_blocks_free_contiguous(config->mem_block, ep_data->buf, blocks);
 		if (err != 0) {
 			LOG_ERR("Failed to free memory blocks");
 			return err;
