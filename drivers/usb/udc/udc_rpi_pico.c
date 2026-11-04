@@ -876,7 +876,10 @@ static int udc_rpi_pico_ep_clear_halt(const struct device *dev,
 		/* Cancel responds with a STALL handshake.*/
 		rpi_pico_ep_cancel(dev, cfg->addr);
 	} else {
-		rpi_pico_bit_clr(buf_ctrl_reg, USB_BUF_CTRL_STALL);
+		/* Not by its clear alias: DPRAM is no register block, a write sets the bit. */
+		sys_write32(sys_read32(buf_ctrl_reg) & ~USB_BUF_CTRL_STALL, buf_ctrl_reg);
+		/* The transfer in hand starts over below, with the data toggle reset. */
+		rpi_pico_ep_cancel(dev, cfg->addr);
 	}
 
 	ep_data->next_pid = 0;
