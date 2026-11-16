@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+# ESP32-P4 rev v0.0 clocks the flash from the XTAL: 40 MHz.
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y

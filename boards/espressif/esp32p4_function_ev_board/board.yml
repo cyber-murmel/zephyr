@@ -5,3 +5,9 @@ board:
   socs:
   - name: esp32p4
   - name: esp32c6
+  revision:
+    format: major.minor.patch
+    default: "1.5.2"
+    revisions:
+    - name: "1.0.0"
+    - name: "1.5.2"
