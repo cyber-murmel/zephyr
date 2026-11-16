@@ -24,6 +24,8 @@ struct lvgl_pointer_input_config {
 
 struct lvgl_pointer_input_data {
 	struct lvgl_common_input_data common_data;
+	/* NULL until LVGL is up. Static data, unlike LVGL's own, which may go and come back. */
+	struct lvgl_disp_data *disp_data;
 	uint32_t point_x;
 	uint32_t point_y;
 };
@@ -33,13 +35,11 @@ static void lvgl_pointer_process_event(struct input_event *evt, void *user_data)
 	const struct device *dev = user_data;
 	const struct lvgl_pointer_input_config *cfg = dev->config;
 	struct lvgl_pointer_input_data *data = dev->data;
-	lv_display_t *disp = lv_indev_get_display(data->common_data.indev);
-	struct lvgl_disp_data *disp_data = (struct lvgl_disp_data *)lv_display_get_user_data(disp);
+	struct lvgl_disp_data *disp_data = data->disp_data;
 	struct display_capabilities *cap;
 	lv_point_t *point;
 
 	if (disp_data == NULL) {
-		LOG_WRN_ONCE("disp_data is NULL");
 		return;
 	}
 
@@ -135,13 +135,25 @@ static void lvgl_pointer_process_event(struct input_event *evt, void *user_data)
 
 	if (k_msgq_put(cfg->common_config.event_msgq, &data->common_data.pending_event,
 		       K_NO_WAIT) != 0) {
-		LOG_WRN("Could not put input data into queue");
+		lv_indev_data_t oldest;
+
+		/* A release comes only once: lost, LVGL would repeat the press until the next. */
+		(void)k_msgq_get(cfg->common_config.event_msgq, &oldest, K_NO_WAIT);
+		(void)k_msgq_put(cfg->common_config.event_msgq, &data->common_data.pending_event,
+				 K_NO_WAIT);
 	}
 }
 
 int lvgl_pointer_input_init(const struct device *dev)
 {
-	return lvgl_input_register_driver(LV_INDEV_TYPE_POINTER, dev);
+	struct lvgl_pointer_input_data *data = dev->data;
+	int ret = lvgl_input_register_driver(LV_INDEV_TYPE_POINTER, dev);
+
+	if (ret != 0) {
+		return ret;
+	}
+	data->disp_data = lv_display_get_user_data(lv_indev_get_display(data->common_data.indev));
+	return 0;
 }
 
 #define LVGL_POINTER_INPUT_DEFINE(inst)                                                            \
