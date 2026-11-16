@@ -35,6 +35,7 @@ union ic_con_register {
 #define IC_DATA_CMD_CMD      BIT(8)
 #define IC_DATA_CMD_STOP     BIT(9)
 #define IC_DATA_CMD_RESTART  BIT(10)
+#define IC_DATA_CMD_FIRST    BIT(11)
 
 /* DesignWare Interrupt bits positions */
 #define DW_INTR_STAT_RX_UNDER      BIT(0)

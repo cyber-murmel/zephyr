@@ -514,7 +514,6 @@ static inline void i2c_dw_transfer_complete(const struct device *dev)
 }
 
 #ifdef CONFIG_I2C_TARGET
-static inline int i2c_dw_read_byte_non_blocking(const struct device *dev, uint8_t *data);
 static inline void i2c_dw_write_byte_non_blocking(const struct device *dev, uint8_t data);
 static void i2c_dw_target_read_clear_intr_bits(const struct device *dev,
 					       union ic_interrupt_register intr_stat);
@@ -617,28 +616,46 @@ static void i2c_dw_isr(const struct device *port)
 #ifdef CONFIG_I2C_TARGET
 		const struct i2c_target_callbacks *target_cb = dw->target_cfg->callbacks;
 		uint32_t target_activity = test_bit_status_activity(reg_base);
+		bool stop_pending = intr_stat.bits.stop_det;
+		bool late_stop = false;
+		/* Clearing the flags below may say the transaction has ended. */
+		uint8_t was = dw->state;
 		uint8_t data;
 
 		i2c_dw_target_read_clear_intr_bits(port, intr_stat);
 
 		if (intr_stat.bits.rx_full) {
-			if (dw->state != I2C_DW_CMD_SEND) {
-				dw->state = I2C_DW_CMD_SEND;
-				dw->read_in_progress = false;
-				if (target_cb->write_requested) {
-					target_cb->write_requested(dw->target_cfg);
-				}
-			}
 			/* FIFO needs to be drained here so we don't miss the next interrupt */
-			do {
-				if (i2c_dw_read_byte_non_blocking(port, &data) != 0) {
-					break;
-				}
+			while (test_bit_status_rfne(reg_base)) {
+				const uint32_t cmd = read_cmd_data(reg_base);
 
-				if (target_cb->write_received) {
-					target_cb->write_received(dw->target_cfg, data);
+				/*
+				 * Served late, the FIFO also holds the start of the transaction
+				 * after the STOP flagged here, and that STOP goes first. After a
+				 * read any byte is such a start; after a write the controller marks
+				 * it, if built to (IC_FIRST_DATA_BYTE_STATUS).
+				 */
+				if (was == I2C_DW_CMD_RECV ||
+				    (was == I2C_DW_CMD_SEND && (cmd & IC_DATA_CMD_FIRST) != 0U)) {
+					if (stop_pending && target_cb->stop) {
+						target_cb->stop(dw->target_cfg);
+					}
+					late_stop = stop_pending;
+					stop_pending = false;
+					dw->state = I2C_DW_STATE_READY;
 				}
-			} while (test_bit_status_rfne(reg_base));
+				if (dw->state != I2C_DW_CMD_SEND) {
+					dw->state = I2C_DW_CMD_SEND;
+					dw->read_in_progress = false;
+					if (target_cb->write_requested) {
+						target_cb->write_requested(dw->target_cfg);
+					}
+				}
+				if (target_cb->write_received) {
+					target_cb->write_received(dw->target_cfg, (uint8_t)cmd);
+				}
+				was = I2C_DW_CMD_SEND;
+			}
 		}
 
 		if (intr_stat.bits.rd_req) {
@@ -663,6 +680,9 @@ static void i2c_dw_isr(const struct device *port)
 
 		if (intr_stat.bits.stop_det) {
 			read_clr_stop_det(reg_base);
+		}
+		/* The one flag may have stood for that transaction's STOP too. */
+		if (stop_pending || (late_stop && !test_bit_status_activity(reg_base))) {
 			if (target_cb->stop) {
 				target_cb->stop(dw->target_cfg);
 			}
@@ -1123,20 +1143,6 @@ static int i2c_dw_runtime_configure(const struct device *dev, uint32_t config)
 }
 
 #ifdef CONFIG_I2C_TARGET
-static inline int i2c_dw_read_byte_non_blocking(const struct device *dev, uint8_t *data)
-{
-	mm_reg_t reg_base = DEVICE_MMIO_GET(dev);
-
-	if (!test_bit_status_rfne(reg_base)) { /* Rx FIFO must not be empty */
-		LOG_ERR("Rx FIFO is empty");
-		return -EIO;
-	}
-
-	*data = (uint8_t)read_cmd_data(reg_base);
-
-	return 0;
-}
-
 static inline void i2c_dw_write_byte_non_blocking(const struct device *dev, uint8_t data)
 {
 	mm_reg_t reg_base = DEVICE_MMIO_GET(dev);
