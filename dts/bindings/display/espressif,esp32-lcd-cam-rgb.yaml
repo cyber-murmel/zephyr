@@ -1,0 +1,66 @@
+# Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  RGB (parallel, DPI) panel scanout on the LCD side of the ESP32 LCD-CAM
+  controller.
+
+  The controller reads a framebuffer from external memory through an AXI
+  GDMA channel and sends it to the panel, frame after frame, without the
+  CPU (CONFIG_DISPLAY_ESP32_LCD_RGB_DOUBLE_BUFFER: two framebuffers, which
+  the driver swaps between frames).
+  The panel's timing comes from a child node, "display-timings", with the
+  compatible "zephyr,panel-timing".
+
+  This is a role of the LCD-CAM controller, whose registers and interrupt the
+  parent node describes, so this child carries no registers of its own.
+
+  The dividers allow a pixel clock of up to 40 MHz from PLL_F160M and up
+  to 31.25 MHz from the APLL.
+
+compatible: "espressif,esp32-lcd-cam-rgb"
+
+include: [lcd-controller.yaml, pinctrl-device.yaml]
+
+properties:
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  dma-channel:
+    type: int
+    default: 2
+    enum: [0, 1, 2]
+    description: |
+      AXI GDMA channel that feeds the controller. It is taken directly, not
+      through the DMA driver: nothing else may use it, and a reset of the
+      AXI GDMA group once the driver has started stops the panel until the
+      next reboot.
+
+  clock-source:
+    type: string
+    default: "pll-f160m"
+    enum: ["pll-f160m", "apll"]
+    description: |
+      Where the pixel clock comes from. "pll-f160m" divides 160 MHz down to
+      twice the pixel clock, with a fraction when that does not divide
+      160 MHz; at 25 MHz (160 / 3.2) the fraction's pattern added weaker
+      lines every 5 MHz between the pixel clock's multiples. "apll" sets the
+      audio PLL to the highest whole multiple of twice the pixel clock it
+      takes, so that this divider has no fraction. The driver does not
+      start while something else holds the APLL at another frequency.
+
+      Measured with an ESP32-S31's own receiver at 2.35 GHz: from
+      pll-f160m at 25 MHz the pixel clock's multiples were lines 9 to 12 dB
+      over the noise floor in 250 kHz; from the APLL at exactly 25 MHz humps
+      some 5 dB over it; from the APLL at 25.1 MHz, which leaves the APLL's
+      own setting a fraction, they read the floor, and the floor between
+      them moved by 0 to 3 dB.
+
+  backlight-gpios:
+    type: phandle-array
+    description: |
+      Backlight enable. It stays off until the display is unblanked with
+      display_blanking_off().

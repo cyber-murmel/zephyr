@@ -1,0 +1,37 @@
+# Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig DISPLAY_ESP32_LCD_RGB
+	bool "ESP32 LCD-CAM RGB panel controller"
+	default y
+	depends on DT_HAS_ESPRESSIF_ESP32_LCD_CAM_RGB_ENABLED
+	depends on SOC_SERIES_ESP32S31
+	select ESP_SPIRAM
+	select SHARED_MULTI_HEAP
+	help
+	  Enable driver for an RGB (parallel, DPI) panel on the LCD side of the
+	  LCD-CAM controller. The controller scans a framebuffer in external
+	  memory out to the panel continuously, through a DMA channel.
+
+if DISPLAY_ESP32_LCD_RGB
+
+config DISPLAY_ESP32_LCD_RGB_INIT_PRIORITY
+	int "ESP32 LCD-CAM RGB panel controller init priority"
+	default DISPLAY_INIT_PRIORITY
+	help
+	  Initialization priority of the controller.
+
+config DISPLAY_ESP32_LCD_RGB_DOUBLE_BUFFER
+	bool "Two framebuffers"
+	help
+	  Writes land in the framebuffer the panel does not show, so that no
+	  frame shows half of an update. A write with frame_incomplete false
+	  ends a frame: the panel shows it from the next frame start, or the
+	  one after when the panel is near the end of a frame, and the next
+	  write waits until then. At the end of a frame, or once it has
+	  written more than 8 separate areas, what the frame before it wrote
+	  is copied into its buffer, except where it wrote itself. It costs
+	  another framebuffer of PSRAM, that copy, and
+	  display_get_framebuffer(), which gives none.
+
+endif # DISPLAY_ESP32_LCD_RGB
