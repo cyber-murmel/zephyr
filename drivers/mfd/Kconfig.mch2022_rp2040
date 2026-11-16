@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config MFD_MCH2022_RP2040
+	bool "MCH2022 badge RP2040 coprocessor"
+	default y
+	depends on DT_HAS_BADGETEAM_MCH2022_RP2040_ENABLED
+	select I2C
+	help
+	  Enable the driver for the RP2040 coprocessor of the MCH2022 badge,
+	  which reads the buttons and drives the LCD backlight.
+
+config MFD_MCH2022_RP2040_DOWNLOAD_RESET
+	bool "Allow the download mode reset over USB"
+	default y
+	depends on MFD_MCH2022_RP2040
+	help
+	  Clear the coprocessor's reset lock at boot, so that esptool can reset
+	  the ESP32 into its serial bootloader through the RP2040's USB serial
+	  port. The badge's stock firmware sets the lock and asks on the display
+	  instead; the RP2040 keeps the lock until it loses power.

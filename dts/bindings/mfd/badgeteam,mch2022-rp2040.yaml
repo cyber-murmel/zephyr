@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  MCH2022 badge RP2040 coprocessor
+
+  The badge's RP2040 bridges USB to the ESP32 and reads the buttons, the
+  battery and USB voltages and the FPGA's CDONE line. It answers on I2C at
+  address 0x17 and drives an active-low interrupt line on button changes.
+
+  Example:
+
+    rp2040: coprocessor@17 {
+            compatible = "badgeteam,mch2022-rp2040";
+            reg = <0x17>;
+
+            buttons {
+                    compatible = "badgeteam,mch2022-rp2040-input";
+                    int-gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
+            };
+
+            backlight: backlight {
+                    compatible = "badgeteam,mch2022-rp2040-backlight";
+            };
+    };
+
+compatible: "badgeteam,mch2022-rp2040"
+
+include: i2c-device.yaml
