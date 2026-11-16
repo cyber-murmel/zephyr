@@ -67,6 +67,15 @@ config LLEXT_EXEC_ALIAS
 	  relocations, symbol tables and init functions use the executable one.
 	  Implemented for the Xtensa relocations.
 
+config LLEXT_REGION_HEAPS
+	bool "Choose a heap for each region of an extension at load time"
+	depends on LLEXT_HEAP_DYNAMIC
+	help
+	  With this option, llext_load_param.region_heaps can place the regions
+	  of one extension in heaps the application owns, instead of the
+	  default ones. A system with fast and slow memory can keep a timing
+	  critical extension in the fast one and the others in the slow one.
+
 choice LLEXT_HEAP_MANAGEMENT
 	prompt "llext heap memory management"
 	default LLEXT_HEAP_K_HEAP

@@ -71,6 +71,25 @@ static void llext_init_mem_part(struct llext *ext, enum llext_mem mem_idx,
 	LOG_DBG("region %d: start %#zx, size %zd", mem_idx, (size_t)start, len);
 }
 
+/* Return a region to the heap it came from. */
+static void llext_free_region(struct llext *ext, enum llext_mem mem_idx, bool instr)
+{
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+	if (ext->mem_heap[mem_idx] != NULL) {
+		k_heap_free(ext->mem_heap[mem_idx], ext->mem[mem_idx]);
+		ext->mem_heap[mem_idx] = NULL;
+		ext->mem[mem_idx] = NULL;
+		return;
+	}
+#endif
+	if (instr) {
+		llext_free_instr(ext, ext->mem[mem_idx]);
+	} else {
+		llext_free_data(ext, ext->mem[mem_idx]);
+	}
+	ext->mem[mem_idx] = NULL;
+}
+
 static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 			      enum llext_mem mem_idx, const struct llext_load_param *ldr_parm)
 {
@@ -199,6 +218,16 @@ static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 #endif
 
 	/* Allocate a suitably aligned area for the region. */
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+	const struct llext_region_heap *place =
+		ldr_parm->region_heaps != NULL ? &ldr_parm->region_heaps[mem_idx] : NULL;
+
+	if (place != NULL && place->heap != NULL) {
+		ext->mem[mem_idx] = k_heap_aligned_alloc(place->heap, region_align, region_alloc,
+							 K_NO_WAIT);
+		ext->mem_heap[mem_idx] = ext->mem[mem_idx] != NULL ? place->heap : NULL;
+	} else
+#endif
 	if (region->sh_flags & SHF_EXECINSTR) {
 		ext->mem[mem_idx] = llext_aligned_alloc_instr(ext, region_align, region_alloc);
 	} else {
@@ -214,6 +243,11 @@ static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 #ifdef CONFIG_LLEXT_EXEC_ALIAS
 	ext->mem_exec_offset[mem_idx] =
 		(region->sh_flags & SHF_EXECINSTR) != 0 ? llext_instr_exec_offset : 0;
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+	if (ext->mem_heap[mem_idx] != NULL && (region->sh_flags & SHF_EXECINSTR) != 0) {
+		ext->mem_exec_offset[mem_idx] = place->exec_offset;
+	}
+#endif
 #endif
 
 	ext->alloc_size += region_alloc;
@@ -255,12 +289,7 @@ static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 	return 0;
 
 err:
-	if (region->sh_flags & SHF_EXECINSTR) {
-		llext_free_instr(ext, ext->mem[mem_idx]);
-	} else {
-		llext_free_data(ext, ext->mem[mem_idx]);
-	}
-	ext->mem[mem_idx] = NULL;
+	llext_free_region(ext, mem_idx, (region->sh_flags & SHF_EXECINSTR) != 0);
 	return ret;
 }
 
@@ -383,17 +412,14 @@ void llext_free_regions(struct llext *ext)
 		if (ext->mem_on_heap[i]) {
 			LOG_DBG("freeing memory region %d", i);
 
-			if (i == LLEXT_MEM_TEXT
+			llext_free_region(ext, i, i == LLEXT_MEM_TEXT
 #ifdef CONFIG_LLEXT_VENEERS
-			    || i == LLEXT_MEM_VENEER
+					  || i == LLEXT_MEM_VENEER
 #endif
-			    ) {
-				llext_free_instr(ext, ext->mem[i]);
-			} else {
-				llext_free_data(ext, ext->mem[i]);
-			}
-
-			ext->mem[i] = NULL;
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+					  || i == LLEXT_MEM_TEXT_ALT
+#endif
+			);
 		}
 	}
 

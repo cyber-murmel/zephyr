@@ -59,6 +59,9 @@ enum llext_mem {
 #ifdef CONFIG_LLEXT_RODATA_NO_RELOC
 	LLEXT_MEM_RODATA_NO_RELOC,  /**< Read-only data without relocations (kept in flash) */
 #endif
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+	LLEXT_MEM_TEXT_ALT,     /**< Code in @ref llext_load_param.text_alt_section */
+#endif
 	LLEXT_MEM_COUNT,        /**< Number of regions managed by LLEXT */
 };
 
@@ -140,6 +143,11 @@ struct llext {
 	ptrdiff_t mem_exec_offset[LLEXT_MEM_COUNT];
 #endif
 
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+	/** The heap each region came from, NULL for the default heaps */
+	struct k_heap *mem_heap[LLEXT_MEM_COUNT];
+#endif
+
 	/** Total llext allocation size */
 	size_t alloc_size;
 
@@ -201,6 +209,18 @@ static inline unsigned int llext_section_count(const struct llext *ext)
 }
 
 /**
+ * @brief Where one region of an extension goes instead of its default heap
+ *
+ * @see llext_load_param.region_heaps
+ */
+struct llext_region_heap {
+	/** Heap to allocate the region from, NULL for the default one */
+	struct k_heap *heap;
+	/** Offset from an address in this heap to the address code executes at */
+	ptrdiff_t exec_offset;
+};
+
+/**
  * @brief Advanced llext_load parameters
  *
  * This structure contains advanced parameters for @ref llext_load.
@@ -234,6 +254,24 @@ struct llext_load_param {
 	 *       before the extension can be unloaded via @ref llext_unload.
 	 */
 	bool keep_section_info;
+
+#if defined(CONFIG_LLEXT_REGION_HEAPS) || defined(__DOXYGEN__)
+	/**
+	 * Heaps for this extension's regions, indexed by @ref llext_mem, or NULL
+	 * to use the default heaps for all of them. Requires
+	 * @kconfig{CONFIG_LLEXT_REGION_HEAPS}.
+	 */
+	const struct llext_region_heap *region_heaps;
+
+	/**
+	 * Name of a section of code to load as its own region, LLEXT_MEM_TEXT_ALT,
+	 * or NULL. With @ref region_heaps it can run from other memory than the
+	 * rest of the code, so it must not reach the rest by PC-relative
+	 * references: a shared object linked with --no-relax and with its
+	 * literals inside the section does not.
+	 */
+	const char *text_alt_section;
+#endif
 };
 
 /** Default initializer for @ref llext_load_param */

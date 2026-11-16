@@ -303,6 +303,12 @@ static int llext_map_sections(struct llext_loader *ldr, struct llext *ext,
 		case SHT_PROGBITS:
 			if (shdr->sh_flags & SHF_EXECINSTR) {
 				mem_idx = LLEXT_MEM_TEXT;
+#ifdef CONFIG_LLEXT_REGION_HEAPS
+				if (ldr_parm->text_alt_section != NULL &&
+				    strcmp(name, ldr_parm->text_alt_section) == 0) {
+					mem_idx = LLEXT_MEM_TEXT_ALT;
+				}
+#endif
 			} else if (shdr->sh_flags & SHF_WRITE) {
 				mem_idx = LLEXT_MEM_DATA;
 #ifdef CONFIG_LLEXT_RODATA_NO_RELOC
