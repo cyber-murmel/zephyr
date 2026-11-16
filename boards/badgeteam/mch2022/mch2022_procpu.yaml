@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: mch2022/esp32/procpu
+name: MCH2022 badge PROCPU
+type: mcu
+arch: xtensa
+toolchain:
+  - zephyr
+supported:
+  - gpio
+  - i2c
+  - spi
+  - uart
+  - sdhc
+  - counter
+  - watchdog
+  - entropy
+  - input
+  - display
+  - led
+  - led_strip
+  - netif:wifi
+vendor: badgeteam

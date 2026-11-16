@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+board:
+  name: mch2022
+  full_name: MCH2022 badge
+  vendor: badgeteam
+  socs:
+  - name: esp32

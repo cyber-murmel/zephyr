@@ -1,0 +1,51 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/pinctrl/esp32-pinctrl.h>
+
+&pinctrl {
+	uart0_default: uart0_default {
+		group1 {
+			pinmux = <UART0_TX_GPIO1>;
+			output-high;
+		};
+
+		group2 {
+			pinmux = <UART0_RX_GPIO3>;
+			bias-pull-up;
+		};
+	};
+
+	/* SK6805 data, through a buffer */
+	spim2_led_strip: spim2_led_strip {
+		group1 {
+			pinmux = <SPIM2_MOSI_GPIO5>;
+			output-low;
+		};
+	};
+
+	/* External 4.7k pull-ups */
+	i2c0_default: i2c0_default {
+		group1 {
+			pinmux = <I2C0_SDA_GPIO22>,
+				 <I2C0_SCL_GPIO21>;
+			drive-open-drain;
+			output-high;
+		};
+	};
+
+	/* Shared by the LCD and the FPGA; only the FPGA drives MISO */
+	spim3_default: spim3_default {
+		group1 {
+			pinmux = <SPIM3_MISO_GPIO35>,
+				 <SPIM3_SCLK_GPIO18>;
+		};
+
+		group2 {
+			pinmux = <SPIM3_MOSI_GPIO23>;
+			output-low;
+		};
+	};
+};

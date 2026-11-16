@@ -1,0 +1,237 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <espressif/esp32/esp32.dtsi>
+#include "mch2022-pinctrl.dtsi"
+#include <espressif/partitions_0x1000_amp_16M.dtsi>
+#include <zephyr/dt-bindings/display/panel.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/lvgl/lvgl.h>
+
+/ {
+	model = "MCH2022 badge PROCPU";
+	compatible = "espressif,esp32";
+
+	aliases {
+		i2c-0 = &i2c0;
+		led-strip = &led_strip;
+		sdhc0 = &sdhc1;
+		uart-0 = &uart0;
+		watchdog0 = &wdt0;
+	};
+
+	chosen {
+		zephyr,sram = &sram1;
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,bt-hci = &esp32_bt_hci;
+		zephyr,display = &ili9341;
+	};
+
+	lvgl_keypad: lvgl-keypad {
+		compatible = "zephyr,lvgl-keypad-input";
+		input = <&buttons>;
+		input-codes = <INPUT_KEY_UP INPUT_KEY_DOWN INPUT_KEY_LEFT INPUT_KEY_RIGHT
+			       INPUT_KEY_ENTER INPUT_BTN_THUMBL INPUT_KEY_BACK INPUT_KEY_HOME>;
+		lvgl-codes = <LV_KEY_UP LV_KEY_DOWN LV_KEY_LEFT LV_KEY_RIGHT
+			      LV_KEY_ENTER LV_KEY_ENTER LV_KEY_ESC LV_KEY_HOME>;
+	};
+
+	mipi_dbi {
+		compatible = "zephyr,mipi-dbi-spi";
+		spi-dev = <&spi3>;
+		dc-gpios = <&gpio1 1 GPIO_ACTIVE_HIGH>;		/* GPIO33 */
+		reset-gpios = <&gpio0 25 GPIO_ACTIVE_LOW>;
+		write-only;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/* 2.4 inch 240x320 panel, turned to 320x240; init values of the badge firmware */
+		ili9341: ili9341@0 {
+			compatible = "ilitek,ili9341";
+			reg = <0>;
+			mipi-max-frequency = <DT_FREQ_M(40)>;
+			pixel-format = <PANEL_PIXEL_FORMAT_RGB_565X>;
+			width = <240>;
+			height = <320>;
+			rotation = <90>;
+			h-mirror;
+			pwctrlb = [00 c1 30];
+			pwseqctrl = [64 03 12 81];
+			timctrla = [85 00 78];
+			pumpratioctrl = [20];
+			pwctrl1 = [23];
+			vmctrl1 = [3e 28];
+			vmctrl2 = [86];
+			frmctr1 = [00 18];
+			disctrl = [08 82 27 00];
+			enable3g = [00];
+			pgamctrl = [0f 31 2b 0c 0e 08 4e f1 37 07 10 03 0e 09 00];
+			ngamctrl = [00 0e 14 03 11 07 31 c1 48 08 0f 0c 31 36 0f];
+		};
+	};
+};
+
+&flash0 {
+	reg = <0x0 DT_SIZE_M(16)>;
+	ranges = <0x0 0x0 DT_SIZE_M(16)>;
+};
+
+&psram0 {
+	size = <DT_SIZE_M(8)>;
+};
+
+&gpio0 {
+	gpio-reserved-ranges = <6 6>, <16 2>, <20 1>, <24 1>, <28 4>;
+	status = "okay";
+
+	/* SD card and LED supply */
+	power_enable {
+		gpio-hog;
+		gpios = <19 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "sd-led-power";
+	};
+
+	/* Low: the LCD on the ESP32's SPI bus; high: on the FPGA's parallel bus */
+	lcd_mode {
+		gpio-hog;
+		gpios = <26 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "lcd-mode";
+	};
+};
+
+&gpio1 {
+	gpio-reserved-ranges = <5 2>;
+	status = "okay";
+};
+
+/* RP2040, BNO055 (0x28), BME680, SAO and Qwiic connectors */
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	sda-gpios = <&gpio0 22 GPIO_OPEN_DRAIN>;
+	scl-gpios = <&gpio0 21 GPIO_OPEN_DRAIN>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+
+	rp2040: coprocessor@17 {
+		compatible = "badgeteam,mch2022-rp2040";
+		reg = <0x17>;
+
+		buttons: buttons {
+			compatible = "badgeteam,mch2022-rp2040-input";
+			int-gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;		/* GPIO34 */
+			zephyr,codes = <INPUT_KEY_HOME INPUT_KEY_MENU INPUT_BTN_START
+					INPUT_KEY_ENTER INPUT_KEY_BACK INPUT_BTN_SELECT
+					INPUT_KEY_LEFT INPUT_BTN_THUMBL INPUT_KEY_DOWN
+					INPUT_KEY_UP INPUT_KEY_RIGHT>;
+		};
+
+		backlight: backlight {
+			compatible = "badgeteam,mch2022-rp2040-backlight";
+		};
+	};
+
+	bme680: bme680@77 {
+		compatible = "bosch,bme680";
+		reg = <0x77>;
+	};
+};
+
+/*
+ * LCD (CS GPIO32) and FPGA (CS GPIO27, not described). Through the GPIO matrix, full duplex
+ * stops at 26.7 MHz; half duplex runs the LCD at 40 MHz.
+ */
+&spi3 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	pinctrl-0 = <&spim3_default>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio1 0 GPIO_ACTIVE_LOW>;
+	half-duplex;
+	dma-enabled;
+};
+
+/* Through the RP2040 to its first USB serial port */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+};
+
+/* SK6805 LEDs on MOSI (GPIO5), through a buffer */
+&spi2 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	line-idle-low;
+	pinctrl-0 = <&spim2_led_strip>;
+	pinctrl-names = "default";
+
+	led_strip: ws2812@0 {
+		compatible = "worldsemi,ws2812-spi";
+		reg = <0>;
+		spi-max-frequency = <6400000>;
+		spi-one-frame = <0xf0>;		/* 625 ns high, 625 ns low */
+		spi-zero-frame = <0xc0>;	/* 312.5 ns high, 937.5 ns low */
+		chain-length = <5>;
+		reset-delay = <80>;
+		color-mapping = <LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_RED
+				 LED_COLOR_ID_BLUE>;
+	};
+};
+
+/* Slot 1 in 1-bit mode; no card detect */
+&sdhc {
+	sdhc1: sdhc@1 {
+		status = "okay";
+		bus-width = <1>;
+		max-bus-freq = <20000000>;
+		power-delay-ms = <100>;
+		clk-pin = <14>;
+		cmd-pin = <15>;
+		d0-pin = <2>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};
+
+&timer0 {
+	status = "okay";
+};
+
+&timer1 {
+	status = "okay";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&esp32_bt_hci {
+	status = "okay";
+};
+
+&wifi {
+	status = "okay";
+};
