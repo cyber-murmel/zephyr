@@ -677,12 +677,56 @@ static int esp32_ed_scan(const struct device *dev, uint16_t duration, energy_sca
 	return 0;
 }
 
+static int esp32_set_ack_fpb(const struct ieee802154_config *config)
+{
+	const bool is_short = !config->ack_fpb.extended;
+	esp_err_t err;
+
+	if (config->ack_fpb.addr == NULL) {
+		/* Disabling without an address clears every address; enabling needs one. */
+		if (config->ack_fpb.enabled) {
+			return -EINVAL;
+		}
+		err = esp_ieee802154_reset_pending_table(true);
+		err |= esp_ieee802154_reset_pending_table(false);
+		return err == ESP_OK ? 0 : -EIO;
+	}
+
+	if (config->ack_fpb.enabled) {
+		err = esp_ieee802154_add_pending_addr(config->ack_fpb.addr, is_short);
+		return err == ESP_OK ? 0 : (err == ESP_ERR_NO_MEM ? -ENOMEM : -EINVAL);
+	}
+
+	err = esp_ieee802154_clear_pending_addr(config->ack_fpb.addr, is_short);
+	return err == ESP_OK ? 0 : -ENOENT;
+}
+
 static int esp32_configure(const struct device *dev, enum ieee802154_config_type type,
 			   const struct ieee802154_config *config)
 {
 	switch (type) {
-	/* IEEE802154_CONFIG_ACK_FPB */
 	/* IEEE802154_CONFIG_EVENT_HANDLER */
+	case IEEE802154_CONFIG_AUTO_ACK_FPB:
+		/*
+		 * Like the other PIB settings (channel, promiscuous mode) this reaches the
+		 * hardware at the next start, transmission, energy scan or CCA. Disabled, the
+		 * hardware sets the bit in the ACK of every Data Request. THREAD matching sets it
+		 * for addresses in the table (the HAL's source matching mode); ZIGBEE clears it
+		 * for short addresses in the table.
+		 */
+		if (!config->auto_ack_fpb.enabled) {
+			esp_ieee802154_set_pending_mode(ESP_IEEE802154_AUTO_PENDING_DISABLE);
+		} else if (config->auto_ack_fpb.mode == IEEE802154_FPB_ADDR_MATCH_ZIGBEE) {
+			esp_ieee802154_set_pending_mode(ESP_IEEE802154_AUTO_PENDING_ZIGBEE);
+		} else {
+			esp_ieee802154_set_pending_mode(ESP_IEEE802154_AUTO_PENDING_ENHANCED);
+		}
+		return 0;
+	case IEEE802154_CONFIG_ACK_FPB:
+		return esp32_set_ack_fpb(config);
+	case IEEE802154_CONFIG_PAN_COORDINATOR:
+		esp_ieee802154_set_coordinator(config->pan_coordinator);
+		break;
 	case IEEE802154_CONFIG_PROMISCUOUS:
 		esp_ieee802154_set_promiscuous(config->promiscuous);
 		break;
