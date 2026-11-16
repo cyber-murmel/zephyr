@@ -17,6 +17,8 @@
  */
 #ifdef CONFIG_ESP_SIMPLE_BOOT
 user_sram_end = DRAM_SHARED_BUFFERS_END;
+#elif defined(CONFIG_ESP_IDF_BOOTLOADER)
+user_sram_end = IDF_BOOTLOADER_IRAM_LOADER_SEG_START;
 #else
 user_sram_end = BOOTLOADER_DRAM_LOADER_SEG_START;
 #endif
@@ -1018,7 +1020,20 @@ SECTIONS
   .flash_rodata_dummy (NOLOAD) :
   {
     . += ALIGN(_instruction_reserved_end - _instruction_reserved_start, CACHE_ALIGN);
+#ifdef CONFIG_ESP_IDF_BOOTLOADER
+    /* The descriptor lands at image offset 0x20 (image and segment headers),
+     * so its address must be 0x20 into a page for the flash mapping.
+     */
+    . += 0x20;
+#endif
   } GROUP_LINK_IN(RODATA_REGION)
+
+#ifdef CONFIG_ESP_IDF_BOOTLOADER
+  .flash.appdesc : ALIGN(0x10)
+  {
+    KEEP(*(.flash.appdesc .flash.appdesc.*))
+  } GROUP_DATA_LINK_IN(RODATA_REGION, ROMABLE_REGION)
+#endif
 
   /* Symbols used during the application memory mapping */
   _image_drom_start = LOADADDR(.flash.rodata);

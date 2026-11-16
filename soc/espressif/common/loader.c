@@ -33,6 +33,7 @@
 #endif
 
 #if CONFIG_SOC_SERIES_ESP32C5 || CONFIG_SOC_SERIES_ESP32C6
+#include <hal/apm_ll.h>
 #include <soc/hp_apm_reg.h>
 #include <soc/lp_apm_reg.h>
 #include <soc/lp_apm0_reg.h>
@@ -114,9 +115,11 @@ extern uint32_t _loader_bss_end[];
 #endif
 
 #ifndef CONFIG_MCUBOOT
-
 extern uint32_t _libc_heap_size;
 static uint32_t libc_heap_size = (uint32_t)&_libc_heap_size;
+#endif
+
+#if !defined(CONFIG_MCUBOOT) && !defined(CONFIG_ESP_IDF_BOOTLOADER)
 
 static struct rom_segments map = {
 	.irom_map_addr = (uint32_t)&_image_irom_vaddr,
@@ -321,7 +324,7 @@ void map_rom_segments(int core, struct rom_segments *map)
 	Cache_Set_IDROM_MMU_Size(cache_mmu_irom_size, CACHE_DROM_MMU_MAX_END - cache_mmu_irom_size);
 #endif
 }
-#endif /* !CONFIG_MCUBOOT */
+#endif /* !CONFIG_MCUBOOT && !CONFIG_ESP_IDF_BOOTLOADER */
 
 /* Common boot path, entered once the arch-specific entry has zeroed .bss. */
 static void boot_start(void)
@@ -353,6 +356,28 @@ static void boot_start(void)
 
 	__esp_platform_app_start();
 #endif /* CONFIG_ESP_SIMPLE_BOOT || CONFIG_BOOTLOADER_MCUBOOT */
+
+#if defined(CONFIG_ESP_IDF_BOOTLOADER)
+	/* The ESP-IDF bootloader set up clocks, flash and the flash mapping, and
+	 * leaves its RTC watchdog running for the application to stop.
+	 */
+	config_wdt();
+
+	/* Its access path filters let masters other than the CPU (DMA) reach
+	 * memory only in TEE mode: open them, as hardware_init() does.
+	 */
+	apm_ll_hp_apm_enable_ctrl_filter_all(false);
+	apm_ll_lp_apm_enable_ctrl_filter_all(false);
+	apm_ll_lp_apm0_enable_ctrl_filter_all(false);
+
+	ana_clock_glitch_reset_config(false);
+
+	ESP_EARLY_LOGI(TAG, "libc heap size %d kB.", libc_heap_size / 1024);
+
+	soc_random_disable();
+
+	__esp_platform_app_start();
+#endif /* CONFIG_ESP_IDF_BOOTLOADER */
 
 #if defined(CONFIG_MCUBOOT)
 	__esp_platform_mcuboot_start();
