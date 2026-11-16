@@ -123,14 +123,27 @@ static int xtensa_elf_relocate(struct llext_loader *ldr, struct llext *ext,
 		elf_word got_entry_read = read_got_entry(got_entry);
 
 		/* Relocate a local symbol: Xtensa specific. Seems to only be used with PIC */
-		unsigned int sh_ndx;
+		unsigned int sh_ndx, end_ndx = ext->sect_cnt;
 
 		for (sh_ndx = 0; sh_ndx < ext->sect_cnt; sh_ndx++) {
-			if (ext->sect_hdrs[sh_ndx].sh_addr <= got_entry_read &&
-			    got_entry_read < ext->sect_hdrs[sh_ndx].sh_addr +
-						     ext->sect_hdrs[sh_ndx].sh_size) {
+			const elf_shdr_t *shdr = &ext->sect_hdrs[sh_ndx];
+
+			if (shdr->sh_addr <= got_entry_read &&
+			    got_entry_read < shdr->sh_addr + shdr->sh_size) {
 				break;
 			}
+			/*
+			 * A pointer just past the last object of a section, as a table's end. It
+			 * is in no section when alignment leaves a gap behind this one.
+			 */
+			if ((shdr->sh_flags & SHF_ALLOC) != 0U && shdr->sh_size != 0U &&
+			    got_entry_read == shdr->sh_addr + shdr->sh_size) {
+				end_ndx = sh_ndx;
+			}
+		}
+
+		if (sh_ndx == ext->sect_cnt) {
+			sh_ndx = end_ndx;
 		}
 
 		if (sh_ndx == ext->sect_cnt) {
