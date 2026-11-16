@@ -1,0 +1,115 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <espressif/esp32c6/esp32c6.dtsi>
+#include "esp32p4_function_ev_board_esp32c6_hpcore-pinctrl.dtsi"
+
+/*
+ * ESP32-C6-MINI-1 radio co-processor. It keeps the ESP-IDF bootloader and
+ * partition table of its esp-hosted-mcu firmware, which installs a Zephyr
+ * image over SDIO into its next OTA partition (CONFIG_ESP_IDF_BOOTLOADER).
+ * Its enable line is ESP32-P4 GPIO54; UART0 reaches only the ESP-Prog
+ * connector, together with CHIP_PU and GPIO9 (BOOT).
+ */
+/ {
+	model = "ESP32-P4-Function-EV-Board ESP32-C6";
+	compatible = "espressif,esp32c6";
+
+	chosen {
+		zephyr,sram = &sramhp;
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &ota_0_partition;
+		zephyr,ieee802154 = &ieee802154;
+		zephyr,bt-hci = &esp32_bt_hci;
+	};
+
+	aliases {
+		watchdog0 = &wdt0;
+	};
+};
+
+&flash0 {
+	reg = <0x0 DT_SIZE_M(4)>;
+	ranges = <0x0 0x0 DT_SIZE_M(4)>;
+
+	/*
+	 * The esp-hosted-mcu layout up to the first OTA partition, which is
+	 * where both firmware generations put it. Where the second one starts
+	 * depends on the generation; the partition table at 0x8000 has it.
+	 */
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "bootloader";
+			reg = <0x0 DT_SIZE_K(32)>;
+			read-only;
+		};
+
+		partition_table: partition@8000 {
+			label = "partition-table";
+			reg = <0x8000 DT_SIZE_K(4)>;
+			read-only;
+		};
+
+		nvs_partition: partition@9000 {
+			label = "nvs";
+			reg = <0x9000 DT_SIZE_K(16)>;
+		};
+
+		otadata_partition: partition@d000 {
+			label = "otadata";
+			reg = <0xd000 DT_SIZE_K(8)>;
+		};
+
+		phy_init_partition: partition@f000 {
+			label = "phy_init";
+			reg = <0xf000 DT_SIZE_K(4)>;
+		};
+
+		ota_0_partition: partition@10000 {
+			label = "ota_0";
+			reg = <0x10000 DT_SIZE_K(1536)>;
+		};
+	};
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+/* ESP-Prog connector */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&wifi {
+	status = "okay";
+};
+
+&ieee802154 {
+	status = "okay";
+};
+
+&esp32_bt_hci {
+	status = "okay";
+};

@@ -4,4 +4,4 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "esp32p4_function_ev_board_hpcore.overlay"
+#include "esp32p4_function_ev_board_esp32p4_hpcore.overlay"

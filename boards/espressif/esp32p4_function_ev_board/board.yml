@@ -4,3 +4,4 @@ board:
   vendor: espressif
   socs:
   - name: esp32p4
+  - name: esp32c6
