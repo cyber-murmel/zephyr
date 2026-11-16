@@ -139,6 +139,14 @@
 		backlight: backlight {
 			compatible = "badgeteam,mch2022-rp2040-backlight";
 		};
+
+		/* Pin 0: the FPGA's CRESET_B; pin 1: its CDONE, inverted */
+		rp2040_gpio: gpio {
+			compatible = "badgeteam,mch2022-rp2040-gpio";
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <2>;
+		};
 	};
 
 	bme680: bme680@77 {
@@ -148,8 +156,8 @@
 };
 
 /*
- * LCD (CS GPIO32) and FPGA (CS GPIO27, not described). Through the GPIO matrix, full duplex
- * stops at 26.7 MHz; half duplex runs the LCD at 40 MHz.
+ * LCD (CS GPIO32) and FPGA (CS GPIO27). Through the GPIO matrix, full duplex stops at 26.7 MHz;
+ * half duplex runs the LCD at 40 MHz.
  */
 &spi3 {
 	#address-cells = <1>;
@@ -157,9 +165,20 @@
 	status = "okay";
 	pinctrl-0 = <&spim3_default>;
 	pinctrl-names = "default";
-	cs-gpios = <&gpio1 0 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&gpio1 0 GPIO_ACTIVE_LOW>, <&gpio0 27 GPIO_ACTIVE_LOW>;
 	half-duplex;
 	dma-enabled;
+
+	/* Held in reset until it has a bitstream: it shares the bus with the LCD */
+	ice40: fpga@1 {
+		compatible = "lattice,ice40-fpga";
+		reg = <1>;
+		spi-max-frequency = <25000000>;
+		cdone-gpios = <&rp2040_gpio 1 GPIO_ACTIVE_LOW>;
+		creset-gpios = <&rp2040_gpio 0 GPIO_ACTIVE_HIGH>;
+		creset-hold;
+		trailing-clocks = <160>;
+	};
 };
 
 /* Through the RP2040 to its first USB serial port */

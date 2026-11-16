@@ -56,8 +56,12 @@ LED device whose brightness the RP2040 sets by PWM. The display runs in landscap
 pixels with the most significant byte first. The SPI bus runs in half duplex: through the GPIO
 matrix, full duplex stops at 26.7 MHz. The LEDs are driven by SPI2 on IO5.
 
-The SD card and LED supply and the LCD mode are held by GPIO hogs. The FPGA, the BNO055 and the
-audio DAC are not described.
+The FPGA is a ``lattice,ice40-fpga`` device on the SPI bus, with its reset and done lines on the
+RP2040. It stays in reset until :c:func:`fpga_load` gives it a bitstream, as it would otherwise
+boot as an SPI controller and drive the bus shared with the LCD.
+
+The SD card and LED supply and the LCD mode are held by GPIO hogs. The BNO055 and the audio DAC
+are not described.
 
 .. include:: ../../../espressif/common/soc-esp32-features.rst
    :start-after: espressif-soc-esp32-features
