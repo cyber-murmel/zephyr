@@ -140,7 +140,7 @@ static int xtensa_elf_relocate(struct llext_loader *ldr, struct llext *ext,
 
 		update_got_entry(got_entry,
 				 got_entry_read +
-					 (uintptr_t)llext_loaded_sect_ptr(ldr, ext, sh_ndx) -
+					 (uintptr_t)llext_loaded_sect_exec_ptr(ldr, ext, sh_ndx) -
 					 ext->sect_hdrs[sh_ndx].sh_addr);
 		break;
 	case R_XTENSA_GLOB_DAT:
@@ -173,10 +173,14 @@ static int xtensa_elf_relocate(struct llext_loader *ldr, struct llext *ext,
 		 * llext_loaded_sect_ptr(ldr, ext, rsym.st_shndx) was already
 		 * available as the "addr" argument of this function, supplied
 		 * by arch_elf_relocate_local() from its non-STT_SECTION branch.
+		 * The offset is taken between the executable addresses of the
+		 * target and of the instruction.
 		 */
-		uintptr_t link_addr = (uintptr_t)llext_loaded_sect_ptr(ldr, ext, rsym.st_shndx) +
+		uintptr_t link_addr =
+			(uintptr_t)llext_loaded_sect_exec_ptr(ldr, ext, rsym.st_shndx) +
 			rsym.st_value + rel->r_addend;
-		ssize_t value = (link_addr - (((uintptr_t)got_entry + 3) & ~3)) >> 2;
+		uintptr_t pc = llext_exec_addr(ext, got_entry);
+		ssize_t value = (link_addr - ((pc + 3) & ~3)) >> 2;
 
 		r_xtensa_slot0_op_relocate(rel, loc, value);
 
@@ -212,7 +216,8 @@ int arch_elf_relocate_local(struct llext_loader *ldr, struct llext *ext, const e
 		/* shdr->sh_addr is NULL when not built for a specific address */
 		sh_addr = shdr->sh_addr &&
 			(!ldr_parm->section_detached || !ldr_parm->section_detached(shdr)) ?
-			shdr->sh_addr : (uintptr_t)llext_loaded_sect_ptr(ldr, ext, sym->st_shndx);
+			shdr->sh_addr :
+			(uintptr_t)llext_loaded_sect_exec_ptr(ldr, ext, sym->st_shndx);
 	} else {
 		sh_addr = ldr->sects[LLEXT_MEM_TEXT].sh_addr;
 	}

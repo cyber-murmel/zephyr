@@ -57,7 +57,7 @@ ssize_t z_impl_llext_get_fn_table_entry(struct llext *ext, bool is_init, void **
 	 * If this fails, something went wrong during the relocation process.
 	 * Using "char *" for these simplifies pointer arithmetic.
 	 */
-	const char *text_start = ext->mem[LLEXT_MEM_TEXT];
+	const char *text_start = (const char *)llext_exec_addr(ext, ext->mem[LLEXT_MEM_TEXT]);
 	const char *text_end = text_start + ext->mem_size[LLEXT_MEM_TEXT];
 	const char *ptr_char = (const char *)*ptr;
 

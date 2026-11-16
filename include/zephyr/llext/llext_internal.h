@@ -28,6 +28,30 @@ struct llext_elf_sect_map {
 
 const void *llext_loaded_sect_ptr(struct llext_loader *ldr, struct llext *ext, unsigned int sh_ndx);
 
+/*
+ * Where a loaded section executes: its llext_loaded_sect_ptr() address, moved
+ * to the executable alias for code in an aliased instruction heap
+ * (CONFIG_LLEXT_EXEC_ALIAS).
+ */
+const void *llext_loaded_sect_exec_ptr(struct llext_loader *ldr, struct llext *ext,
+				       unsigned int sh_ndx);
+
+/* The executable address of a location inside one of the extension's regions. */
+static inline uintptr_t llext_exec_addr(const struct llext *ext, const void *addr)
+{
+#ifdef CONFIG_LLEXT_EXEC_ALIAS
+	for (int i = 0; i < LLEXT_MEM_COUNT; i++) {
+		uintptr_t start = (uintptr_t)ext->mem[i];
+
+		if (ext->mem_exec_offset[i] != 0 && start <= (uintptr_t)addr &&
+		    (uintptr_t)addr < start + ext->mem_size[i]) {
+			return (uintptr_t)addr + ext->mem_exec_offset[i];
+		}
+	}
+#endif
+	return (uintptr_t)addr;
+}
+
 
 static inline const char *llext_string(const struct llext_loader *ldr, const struct llext *ext,
 	enum llext_mem mem_idx, unsigned int idx)

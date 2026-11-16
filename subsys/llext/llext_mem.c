@@ -25,6 +25,11 @@ LOG_MODULE_DECLARE(llext, CONFIG_LLEXT_LOG_LEVEL);
 bool llext_heap_inited;
 #endif
 
+#ifdef CONFIG_LLEXT_EXEC_ALIAS
+/* Offset from the instruction heap's writable to its executable address */
+static ptrdiff_t llext_instr_exec_offset;
+#endif
+
 /* PMP granularity is only defined when RISC-V PMP is built in. */
 #ifdef CONFIG_PMP_GRANULARITY
 #define LLEXT_PMP_GRANULARITY CONFIG_PMP_GRANULARITY
@@ -205,6 +210,11 @@ static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 			(size_t)region_alloc, (size_t)region_align, mem_idx);
 		return -ENOMEM;
 	}
+
+#ifdef CONFIG_LLEXT_EXEC_ALIAS
+	ext->mem_exec_offset[mem_idx] =
+		(region->sh_flags & SHF_EXECINSTR) != 0 ? llext_instr_exec_offset : 0;
+#endif
 
 	ext->alloc_size += region_alloc;
 
@@ -430,6 +440,22 @@ int llext_heap_init_harvard(void *instr_mem, size_t instr_bytes, void *data_mem,
 #endif
 }
 
+int llext_heap_init_harvard_exec(void *instr_mem, size_t instr_bytes, void *data_mem,
+				 size_t data_bytes, ptrdiff_t exec_offset)
+{
+#ifndef CONFIG_LLEXT_EXEC_ALIAS
+	return -ENOSYS;
+#else
+	int ret = llext_heap_init_harvard(instr_mem, instr_bytes, data_mem, data_bytes);
+
+	if (ret == 0) {
+		llext_instr_exec_offset = exec_offset;
+	}
+
+	return ret;
+#endif
+}
+
 int llext_heap_init(void *mem, size_t bytes)
 {
 #if !defined(CONFIG_LLEXT_HEAP_DYNAMIC) || defined(CONFIG_HARVARD)
@@ -462,6 +488,9 @@ int llext_heap_uninit(void)
 	if (llext_iterate(llext_loaded, NULL)) {
 		return -EBUSY;
 	}
+#ifdef CONFIG_LLEXT_EXEC_ALIAS
+	llext_instr_exec_offset = 0;
+#endif
 	llext_heap_inited = false;
 	return 0;
 #else
