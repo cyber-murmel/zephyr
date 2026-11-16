@@ -37,6 +37,9 @@ LOG_MODULE_REGISTER(elf, CONFIG_LLEXT_LOG_LEVEL);
 /* B-type has 13-bit signed immediate */
 #define RISCV_MAX_JUMP_DISTANCE_B_TYPE ((1 << 12) - 1)
 
+/* J-type has 21-bit signed immediate (last bit implicit 0) */
+#define RISCV_MAX_JUMP_DISTANCE_J_TYPE ((1 << 20) - 1)
+
 /* CB-type has 9-bit signed immediate */
 #define RISCV_MAX_JUMP_DISTANCE_CB_TYPE ((1 << 8) - 1)
 
@@ -307,7 +310,7 @@ int arch_elf_relocate(struct llext_loader *ldr, struct llext *ext, elf_rela_t *r
 		modified_operand = R_RISCV_CLEAR_JTYPE_IMM8(modified_operand);
 		modified_operand = R_RISCV_SET_JTYPE_IMM8(modified_operand, imm8);
 		UNALIGNED_PUT(modified_operand, loc32);
-		return riscv_relocation_fits(jump_target, RISCV_MAX_JUMP_DISTANCE_U_PLUS_I_TYPE,
+		return riscv_relocation_fits(jump_target, RISCV_MAX_JUMP_DISTANCE_J_TYPE,
 					     reloc_type);
 	case R_RISCV_CALL:
 	case R_RISCV_CALL_PLT:
