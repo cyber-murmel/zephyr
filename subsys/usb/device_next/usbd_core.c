@@ -285,7 +285,10 @@ static int usbd_pre_init(void)
 			K_KERNEL_STACK_SIZEOF(usbd_stack),
 			usbd_thread,
 			NULL, NULL, NULL,
-			K_PRIO_COOP(8), 0, K_NO_WAIT);
+			IS_ENABLED(CONFIG_USBD_THREAD_PREEMPTIBLE)
+			? K_PRIO_PREEMPT(CONFIG_USBD_THREAD_PRIORITY)
+			: K_PRIO_COOP(CONFIG_USBD_THREAD_PRIORITY),
+			0, K_NO_WAIT);
 
 	k_thread_name_set(&usbd_thread_data, "usbd");
 

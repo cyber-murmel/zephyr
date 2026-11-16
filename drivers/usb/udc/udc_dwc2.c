@@ -3235,7 +3235,9 @@ static const struct udc_api udc_dwc2_api = {
 				K_THREAD_STACK_SIZEOF(udc_dwc2_stack_##n),	\
 				udc_dwc2_thread_##n,				\
 				(void *)dev, NULL, NULL,			\
-				K_PRIO_COOP(CONFIG_UDC_DWC2_THREAD_PRIORITY),	\
+				IS_ENABLED(CONFIG_UDC_DWC2_THREAD_PREEMPTIBLE)	\
+				? K_PRIO_PREEMPT(CONFIG_UDC_DWC2_THREAD_PRIORITY)\
+				: K_PRIO_COOP(CONFIG_UDC_DWC2_THREAD_PRIORITY),	\
 				K_ESSENTIAL,					\
 				K_NO_WAIT);					\
 		k_thread_name_set(&priv->thread_data, dev->name);		\
