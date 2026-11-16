@@ -94,9 +94,19 @@ ssize_t llext_file_offset(struct llext_loader *ldr, uintptr_t offset)
 	unsigned int i;
 
 	for (i = 0; i < LLEXT_MEM_COUNT; i++) {
-		if (ldr->sects[i].sh_addr <= offset &&
-		    ldr->sects[i].sh_addr + ldr->sects[i].sh_size > offset) {
-			return offset - ldr->sects[i].sh_addr + ldr->sects[i].sh_offset;
+		const elf_shdr_t *region = ldr->sects + i;
+
+		/*
+		 * Relocations patch file contents, which a NOBITS region has none of.
+		 * A region's alignment pre-padding (sh_info) belongs to no section
+		 * and may cover the end of the region before it.
+		 */
+		if (region->sh_type == SHT_NOBITS) {
+			continue;
+		}
+		if (region->sh_addr + region->sh_info <= offset &&
+		    region->sh_addr + region->sh_size > offset) {
+			return offset - region->sh_addr + region->sh_offset;
 		}
 	}
 
