@@ -24,5 +24,6 @@ supported:
   - pulse_io
   - pwm
   - retained_mem
+  - smp
   - uart
   - watchdog
