@@ -1,0 +1,11 @@
+/*
+ * Copyright The Zephyr Project Contributors
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* Core 1 is started by the test at run time. */
+
+&cpu1 {
+	zephyr,deferred-start;
+};
