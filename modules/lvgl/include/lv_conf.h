@@ -14,21 +14,44 @@
 
 /* Memory manager settings */
 
-#define LV_USE_STDLIB_MALLOC  LV_STDLIB_CUSTOM
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
 
 #if defined(CONFIG_LV_Z_MEM_POOL_HEAP_LIB_C)
+#define LV_USE_STDLIB_MALLOC  LV_STDLIB_CLIB
 #define LV_STDLIB_INCLUDE "stdlib.h"
 #define lv_malloc_core    malloc
 #define lv_realloc_core   realloc
 #define lv_free_core      free
-#else
+#elif defined(CONFIG_LV_Z_MEM_POOL_SYS_HEAP)
+#define LV_USE_STDLIB_MALLOC  LV_STDLIB_CUSTOM
+
 #define LV_STDLIB_INCLUDE "lvgl_mem.h"
 #define lv_malloc_core    lvgl_malloc
 #define lv_realloc_core   lvgl_realloc
 #define lv_free_core      lvgl_free
+#elif defined(CONFIG_LV_Z_MEM_POOL_MICROPYTHON)
+#define LV_USE_STDLIB_MALLOC  LV_STDLIB_MICROPYTHON
+
+#define LV_STDLIB_INCLUDE "lvgl_mem.h"
+
+extern void mp_lv_init_gc();
+extern void mp_lv_deinit_gc();
+#define LV_GC_INIT() mp_lv_init_gc()
+#define LV_GC_DEINIT() mp_lv_deinit_gc()
+
+#define LV_ENABLE_GLOBAL_CUSTOM 1
+#if LV_ENABLE_GLOBAL_CUSTOM
+    extern void *mp_lv_roots;
+    #define LV_GLOBAL_CUSTOM() ((lv_global_t*)mp_lv_roots)
 #endif
+#endif
+
+#define LV_TICK_CUSTOM_INCLUDE      "kernel.h"
+#define LV_TICK_CUSTOM_SYS_TIME_EXPR    (k_uptime_get_32())
+
+typedef void *lv_disp_drv_user_data_t;
+typedef void *lv_indev_drv_user_data_t;
 
 #define LV_ASSERT_HANDLER         __ASSERT_NO_MSG(false);
 #define LV_ASSERT_HANDLER_INCLUDE "zephyr/sys/__assert.h"

@@ -331,40 +331,6 @@ void lvgl_unlock(void)
 
 #endif /* CONFIG_LV_Z_LVGL_MUTEX */
 
-void lv_mem_init(void)
-{
-#ifdef CONFIG_LV_Z_MEM_POOL_SYS_HEAP
-	lvgl_heap_init();
-#endif /* CONFIG_LV_Z_MEM_POOL_SYS_HEAP */
-}
-
-void lv_mem_deinit(void)
-{
-	/* Reinitializing the heap clears all allocations, no action needed */
-}
-
-void lv_mem_monitor_core(lv_mem_monitor_t *mon_p)
-{
-	memset(mon_p, 0, sizeof(lv_mem_monitor_t));
-
-#if CONFIG_LV_Z_MEM_POOL_SYS_HEAP
-	struct sys_memory_stats stats;
-
-	lvgl_heap_stats(&stats);
-	mon_p->used_pct =
-		(stats.allocated_bytes * 100) / (stats.allocated_bytes + stats.free_bytes);
-	mon_p->max_used = stats.max_allocated_bytes;
-#else
-	LOG_WRN_ONCE("Memory statistics only supported for CONFIG_LV_Z_MEM_POOL_SYS_HEAP");
-#endif /* CONFIG_LV_Z_MEM_POOL_SYS_HEAP */
-}
-
-lv_result_t lv_mem_test_core(void)
-{
-	/* Not supported for now */
-	return LV_RESULT_OK;
-}
-
 #define ENUMERATE_DISPLAY_DEVS(n) display_dev[n] = DEVICE_DT_GET(DISPLAY_NODE(n));
 
 int lvgl_init(void)
@@ -416,6 +382,10 @@ int lvgl_init(void)
 		if (set_lvgl_rendering_cb(lv_displays[i]) != 0) {
 			LOG_ERR("Display %d not supported.", i);
 			return -ENOTSUP;
+		}
+
+		if (!p_disp_data->blanking_on) {
+			display_blanking_off(display_dev[i]);
 		}
 
 #ifdef CONFIG_LV_Z_BUFFER_ALLOC_STATIC

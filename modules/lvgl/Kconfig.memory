@@ -34,6 +34,10 @@ choice LV_Z_MEMORY_POOL
 		help
 		  Use a dedicated memory pool from a private sys heap.
 
+	config LV_Z_MEM_POOL_MICROPYTHON
+		bool "MicroPython lvgl pool"
+		help
+		  Share memory pool with python.
 endchoice
 
 config LV_Z_MEM_POOL_SIZE
