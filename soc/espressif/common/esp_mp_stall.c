@@ -187,6 +187,8 @@ void IRAM_ATTR soc_mp_pause_others(void)
 		arch_irq_unlock(key);
 		arch_nop();
 		key = arch_irq_lock();
+		/* A thread switch in that window may have moved this thread to the other core. */
+		me = (atomic_val_t)esp_cpu_get_core_id();
 	}
 
 	s_pause_irq_key[me] = key;
