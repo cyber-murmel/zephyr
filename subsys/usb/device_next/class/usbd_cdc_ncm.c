@@ -40,10 +40,10 @@ enum {
 
 /* Chapter 6.2.7 table 6-4 */
 #define CDC_NCM_RECV_MAX_DATAGRAMS_PER_NTB CONFIG_USBD_CDC_NCM_MAX_DGRAM_PER_NTB
-#define CDC_NCM_RECV_NTB_MAX_SIZE 2048
+#define CDC_NCM_RECV_NTB_MAX_SIZE CONFIG_USBD_CDC_NCM_RECV_NTB_MAX_SIZE
 
-#define CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB 1
-#define CDC_NCM_SEND_NTB_MAX_SIZE 2048
+#define CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB CONFIG_USBD_CDC_NCM_SEND_MAX_DGRAM_PER_NTB
+#define CDC_NCM_SEND_NTB_MAX_SIZE CONFIG_USBD_CDC_NCM_SEND_NTB_MAX_SIZE
 
 /* Chapter 6.3 table 6-5 and 6-6 */
 struct cdc_ncm_notification {
@@ -171,12 +171,18 @@ union recv_ntb {
 } __packed;
 
 /*
- * Transfers through two endpoints proceed in a synchronous manner,
- * with maximum block of CDC_NCM_SEND_NTB_MAX_SIZE.
+ * One OUT buffer per instance. IN takes a second buffer when an NTB may hold
+ * more than one datagram: it collects datagrams while the first is in flight.
  */
-UDC_BUF_POOL_DEFINE(cdc_ncm_ep_pool,
-		    DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) * 2,
-		    MAX(CDC_NCM_SEND_NTB_MAX_SIZE, CDC_NCM_RECV_NTB_MAX_SIZE),
+#define CDC_NCM_SEND_NTB_BUFFERS (CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB > 1 ? 2 : 1)
+
+UDC_BUF_POOL_DEFINE(cdc_ncm_ep_in_pool,
+		    DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) * CDC_NCM_SEND_NTB_BUFFERS,
+		    CDC_NCM_SEND_NTB_MAX_SIZE,
+		    sizeof(struct udc_buf_info), NULL);
+UDC_BUF_POOL_DEFINE(cdc_ncm_ep_out_pool,
+		    DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT),
+		    CDC_NCM_RECV_NTB_MAX_SIZE,
 		    sizeof(struct udc_buf_info), NULL);
 
 /*
@@ -230,6 +236,11 @@ struct cdc_ncm_eth_data {
 	uint16_t tx_seq;
 	uint16_t rx_seq;
 
+	/* Guards the IN NTB being filled and the transfer in flight flag. */
+	struct k_mutex tx_lock;
+	struct net_buf *tx_ntb;
+	uint16_t tx_count;
+	bool tx_busy;
 	struct k_sem sync_sem;
 
 	struct k_work_delayable notif_work;
@@ -304,7 +315,8 @@ static struct net_buf *cdc_ncm_buf_alloc(const uint8_t ep)
 	struct net_buf *buf = NULL;
 	struct udc_buf_info *bi;
 
-	buf = net_buf_alloc(&cdc_ncm_ep_pool, K_NO_WAIT);
+	buf = net_buf_alloc(USB_EP_DIR_IS_IN(ep) ? &cdc_ncm_ep_in_pool : &cdc_ncm_ep_out_pool,
+			    K_NO_WAIT);
 	if (!buf) {
 		return NULL;
 	}
@@ -638,6 +650,117 @@ static void ncm_handle_notifications(const struct device *dev, const int err)
 	}
 }
 
+/* Drop the NTB being filled, its datagrams belong to a closed session. */
+static void cdc_ncm_tx_drop(struct cdc_ncm_eth_data *const data)
+{
+	k_mutex_lock(&data->tx_lock, K_FOREVER);
+	if (data->tx_ntb != NULL) {
+		net_buf_unref(data->tx_ntb);
+		data->tx_ntb = NULL;
+	}
+	k_mutex_unlock(&data->tx_lock);
+}
+
+/* Empty IN NTB: NTH16, then an NDP16 with room for every datagram entry. */
+static struct net_buf *cdc_ncm_ntb_alloc(struct usbd_class_data *const c_data,
+					 struct cdc_ncm_eth_data *const data)
+{
+	struct net_buf *buf;
+	union send_ntb *ntb;
+
+	buf = cdc_ncm_buf_alloc(cdc_ncm_get_bulk_in(c_data));
+	if (buf == NULL) {
+		return NULL;
+	}
+
+	ntb = (union send_ntb *)buf->data;
+	memset(ntb, 0, sizeof(ntb->nth) + sizeof(ntb->ndp) + sizeof(ntb->ndp_datagram));
+	ntb->nth.dwSignature = sys_cpu_to_le32(NTH16_SIGNATURE);
+	ntb->nth.wHeaderLength = sys_cpu_to_le16(sizeof(struct nth16));
+	ntb->nth.wNdpIndex = sys_cpu_to_le16(sizeof(struct nth16));
+	ntb->ndp.dwSignature = sys_cpu_to_le32(NDP16_SIGNATURE_NCM0);
+	/* Unused entries stay zero: the first one terminates the list. */
+	ntb->ndp.wLength = sys_cpu_to_le16(sizeof(struct ndp16) +
+					   (CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB + 1) *
+					   sizeof(struct ndp16_datagram));
+	net_buf_add(buf, sizeof(struct nth16) + sys_le16_to_cpu(ntb->ndp.wLength));
+	data->tx_count = 0;
+
+	return buf;
+}
+
+BUILD_ASSERT(sizeof(struct nth16) + sizeof(struct ndp16) +
+	     (CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB + 1) * sizeof(struct ndp16_datagram) +
+	     NET_ETH_MAX_FRAME_SIZE <= CDC_NCM_SEND_NTB_MAX_SIZE,
+	     "IN NTB too small for a single frame");
+
+static bool cdc_ncm_ntb_fits(const struct cdc_ncm_eth_data *const data, const size_t len)
+{
+	return data->tx_count < CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB &&
+	       ROUND_UP(data->tx_ntb->len, CDC_NCM_ALIGNMENT) + len <= CDC_NCM_SEND_NTB_MAX_SIZE;
+}
+
+/* Datagrams start at multiples of wNdpInDivisor (4) with no payload remainder. */
+static int cdc_ncm_ntb_append(struct cdc_ncm_eth_data *const data, struct net_pkt *const pkt,
+			      const size_t len)
+{
+	struct net_buf *buf = data->tx_ntb;
+	union send_ntb *ntb = (union send_ntb *)buf->data;
+	uint16_t start = ROUND_UP(buf->len, CDC_NCM_ALIGNMENT);
+
+	memset(net_buf_add(buf, start - buf->len), 0, start - buf->len);
+	if (net_pkt_read(pkt, buf->data + start, len)) {
+		LOG_ERR("Failed copy net_pkt");
+		buf->len = start;
+		return -ENOBUFS;
+	}
+
+	net_buf_add(buf, len);
+	ntb->ndp_datagram[data->tx_count].wDatagramIndex = sys_cpu_to_le16(start);
+	ntb->ndp_datagram[data->tx_count].wDatagramLength = sys_cpu_to_le16(len);
+	data->tx_count++;
+
+	return 0;
+}
+
+/* Start the IN transfer of the NTB being filled, unless one is in flight. Lock held. */
+static int cdc_ncm_tx_kick(struct usbd_class_data *const c_data,
+			   struct cdc_ncm_eth_data *const data)
+{
+	struct net_buf *buf = data->tx_ntb;
+	union send_ntb *ntb;
+	int ret;
+
+	if (data->tx_busy || buf == NULL) {
+		return 0;
+	}
+
+	data->tx_ntb = NULL;
+	if (!atomic_test_bit(&data->state, CDC_NCM_DATA_IFACE_ENABLED)) {
+		net_buf_unref(buf);
+		return -EACCES;
+	}
+
+	ntb = (union send_ntb *)buf->data;
+	ntb->nth.wSequence = sys_cpu_to_le16(++data->tx_seq);
+	ntb->nth.wBlockLength = sys_cpu_to_le16(buf->len);
+
+	if (buf->len % cdc_ncm_get_bulk_in_mps(c_data) == 0) {
+		udc_ep_buf_set_zlp(buf);
+	}
+
+	data->tx_busy = true;
+	ret = usbd_ep_enqueue(c_data, buf);
+	if (ret) {
+		LOG_ERR("Failed to enqueue net_buf for 0x%02x",
+			cdc_ncm_get_bulk_in(c_data));
+		data->tx_busy = false;
+		net_buf_unref(buf);
+	}
+
+	return ret;
+}
+
 static int usbd_cdc_ncm_request(struct usbd_class_data *const c_data,
 				struct net_buf *buf, int err)
 {
@@ -654,6 +777,12 @@ static int usbd_cdc_ncm_request(struct usbd_class_data *const c_data,
 	}
 
 	if (bi->ep == cdc_ncm_get_bulk_in(c_data)) {
+		k_mutex_lock(&data->tx_lock, K_FOREVER);
+		net_buf_unref(buf);
+		data->tx_busy = false;
+		/* Datagrams collected meanwhile go out right away. */
+		(void)cdc_ncm_tx_kick(c_data, data);
+		k_mutex_unlock(&data->tx_lock);
 		k_sem_give(&data->sync_sem);
 		return 0;
 	}
@@ -840,6 +969,7 @@ static void usbd_cdc_ncm_update(struct usbd_class_data *const c_data,
 
 	if (data_iface == iface && alternate == 0) {
 		atomic_clear_bit(&data->state, CDC_NCM_DATA_IFACE_ENABLED);
+		cdc_ncm_tx_drop(data);
 		data->tx_seq = 0;
 		data->rx_seq = 0;
 	}
@@ -867,6 +997,7 @@ static void usbd_cdc_ncm_disable(struct usbd_class_data *const c_data)
 
 	atomic_clear_bit(&data->state, CDC_NCM_DATA_IFACE_ENABLED);
 	atomic_clear_bit(&data->state, CDC_NCM_CLASS_SUSPENDED);
+	cdc_ncm_tx_drop(data);
 
 	LOG_INF("Disabled %s", c_data->name);
 }
@@ -1048,8 +1179,6 @@ static int cdc_ncm_send(const struct device *dev, struct net_pkt *const pkt)
 	struct cdc_ncm_eth_data *const data = dev->data;
 	struct usbd_class_data *c_data = data->c_data;
 	size_t len = net_pkt_get_len(pkt);
-	struct net_buf *buf;
-	union send_ntb *ntb;
 	int ret;
 
 	if (len > NET_ETH_MAX_FRAME_SIZE) {
@@ -1065,60 +1194,48 @@ static int cdc_ncm_send(const struct device *dev, struct net_pkt *const pkt)
 		return -EACCES;
 	}
 
-	buf = cdc_ncm_buf_alloc(cdc_ncm_get_bulk_in(c_data));
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate buffer");
-		return -ENOMEM;
+	k_mutex_lock(&data->tx_lock, K_FOREVER);
+
+	while (data->tx_ntb == NULL || !cdc_ncm_ntb_fits(data, len)) {
+		if (data->tx_ntb == NULL) {
+			data->tx_ntb = cdc_ncm_ntb_alloc(c_data, data);
+			if (data->tx_ntb != NULL) {
+				continue;
+			}
+			if (!data->tx_busy) {
+				LOG_ERR("Failed to allocate buffer");
+				ret = -ENOMEM;
+				goto out;
+			}
+		} else if (!data->tx_busy) {
+			ret = cdc_ncm_tx_kick(c_data, data);
+			if (ret) {
+				goto out;
+			}
+			continue;
+		}
+
+		/* NTB full or no buffer left: wait for the transfer in flight. */
+		k_mutex_unlock(&data->tx_lock);
+		k_sem_take(&data->sync_sem, K_FOREVER);
+		k_mutex_lock(&data->tx_lock, K_FOREVER);
+
+		if (!atomic_test_bit(&data->state, CDC_NCM_DATA_IFACE_ENABLED)) {
+			ret = -EACCES;
+			goto out;
+		}
 	}
 
-	ntb = (union send_ntb *)buf->data;
-
-	ntb->nth.dwSignature = sys_cpu_to_le32(NTH16_SIGNATURE);
-	ntb->nth.wHeaderLength = sys_cpu_to_le16(sizeof(struct nth16));
-	ntb->nth.wSequence = sys_cpu_to_le16(++data->tx_seq);
-	ntb->nth.wNdpIndex = sys_cpu_to_le16(sizeof(struct nth16));
-	ntb->ndp.dwSignature = sys_cpu_to_le32(NDP16_SIGNATURE_NCM0);
-	ntb->ndp.wLength = sys_cpu_to_le16(sizeof(struct ndp16) +
-					   (CDC_NCM_SEND_MAX_DATAGRAMS_PER_NTB + 1) *
-					   sizeof(struct ndp16_datagram));
-	ntb->ndp.wNextNdpIndex = 0;
-	ntb->ndp_datagram[0].wDatagramIndex =
-		sys_cpu_to_le16(sys_le16_to_cpu(ntb->nth.wHeaderLength) +
-				sys_le16_to_cpu(ntb->ndp.wLength));
-	ntb->ndp_datagram[0].wDatagramLength = sys_cpu_to_le16(len);
-	ntb->ndp_datagram[1].wDatagramIndex  = 0;
-	ntb->ndp_datagram[1].wDatagramLength = 0;
-	ntb->nth.wBlockLength = sys_cpu_to_le16(
-		sys_le16_to_cpu(ntb->ndp_datagram[0].wDatagramIndex) + len);
-
-	net_buf_add(buf, sys_le16_to_cpu(ntb->ndp_datagram[0].wDatagramIndex));
-
-	if (net_pkt_read(pkt, buf->data + buf->len, len)) {
-		LOG_ERR("Failed copy net_pkt");
-		net_buf_unref(buf);
-
-		return -ENOBUFS;
+	ret = cdc_ncm_ntb_append(data, pkt, len);
+	if (ret == 0) {
+		/* Immediately if idle, else on completion of the one in flight. */
+		ret = cdc_ncm_tx_kick(c_data, data);
 	}
 
-	net_buf_add(buf, len);
+out:
+	k_mutex_unlock(&data->tx_lock);
 
-	if (sys_le16_to_cpu(ntb->nth.wBlockLength) % cdc_ncm_get_bulk_in_mps(c_data) == 0) {
-		udc_ep_buf_set_zlp(buf);
-	}
-
-	ret = usbd_ep_enqueue(c_data, buf);
-	if (ret) {
-		LOG_ERR("Failed to enqueue net_buf for 0x%02x",
-			cdc_ncm_get_bulk_in(c_data));
-		net_buf_unref(buf);
-		return ret;
-	}
-
-	k_sem_take(&data->sync_sem, K_FOREVER);
-
-	net_buf_unref(buf);
-
-	return 0;
+	return ret;
 }
 
 static int cdc_ncm_set_config(const struct device *dev,
@@ -1420,6 +1537,7 @@ const static struct usb_desc_header *const cdc_ncm_hs_desc_##n[] = {		\
 	static struct cdc_ncm_eth_data eth_data_##n = {				\
 		.c_data = &cdc_ncm_##n,						\
 		.mac_addr = DT_INST_PROP_OR(n, local_mac_address, {0}),		\
+		.tx_lock = Z_MUTEX_INITIALIZER(eth_data_##n.tx_lock),		\
 		.sync_sem = Z_SEM_INITIALIZER(eth_data_##n.sync_sem, 0, 1),	\
 		.mac_desc_data = &mac_desc_data_##n,				\
 		.desc = &cdc_ncm_desc_##n,					\
