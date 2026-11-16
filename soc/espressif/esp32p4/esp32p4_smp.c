@@ -41,6 +41,16 @@
 void IRAM_ATTR __attribute__((naked, noreturn)) esp_appcpu_entry(void)
 {
 	__asm__ volatile(
+#ifdef CONFIG_RISCV_GP
+		/* Set up the global pointer first: the linker may relax the
+		 * address loads below to gp-relative ones.
+		 */
+		".option push\n"
+		".option norelax\n"
+		"la gp, __global_pointer$\n"
+		".option pop\n"
+#endif
+
 		/* Disable interrupts */
 		"csrci mstatus, 0x8\n"
 
@@ -57,14 +67,6 @@ void IRAM_ATTR __attribute__((naked, noreturn)) esp_appcpu_entry(void)
 		"li t0, %0\n"
 		"csrs mstatus, t0\n"
 		"fscsr zero\n"
-#endif
-
-#ifdef CONFIG_RISCV_GP
-		/* Set up the global pointer */
-		".option push\n"
-		".option norelax\n"
-		"la gp, __global_pointer$\n"
-		".option pop\n"
 #endif
 
 		"j __initialize\n"
