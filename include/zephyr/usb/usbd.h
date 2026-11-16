@@ -803,6 +803,18 @@ static inline void *usbd_class_get_private(const struct usbd_class_data *const c
 	VENDOR_REQ_DEFINE(((const uint8_t []) { _reqs }), \
 			  sizeof((const uint8_t []) { _reqs }))
 
+/**
+ * @brief Flag for @c bEndpointAddress in a class's endpoint descriptor
+ *
+ * By default the stack gives each endpoint the first free address of its direction. A class whose host
+ * driver expects a particular address ORs this flag into the descriptor's @c bEndpointAddress
+ * (for example @c 0x82 | USBD_EP_ADDR_FIXED): the stack then assigns exactly that address, fails the
+ * initialization if it is taken or the controller does not offer it, and clears the flag. The flag
+ * is gone after the first initialization, so a class that can be initialized again sets it in its
+ * shutdown handler.
+ */
+#define USBD_EP_ADDR_FIXED 0x40U
+
 
 /**
  * @brief Add common USB descriptor

@@ -27,6 +27,28 @@ static int assign_ep_addr(const struct device *dev,
 {
 	int ret = -ENODEV;
 
+	if ((ed->bEndpointAddress & USBD_EP_ADDR_FIXED) != 0U) {
+		uint16_t mps = sys_le16_to_cpu(ed->wMaxPacketSize);
+		uint8_t ep = (uint8_t)(ed->bEndpointAddress & ~USBD_EP_ADDR_FIXED);
+
+		ed->bEndpointAddress = ep;
+		if (usbd_ep_bm_is_set(config_ep_bm, ep) ||
+		    usbd_ep_bm_is_set(class_ep_bm, ep)) {
+			LOG_ERR("Fixed endpoint 0x%02x is already assigned", ep);
+			return -EBUSY;
+		}
+
+		ret = udc_ep_try_config(dev, ep, ed->bmAttributes, &mps,
+					ed->bInterval);
+		if (ret == 0) {
+			ed->wMaxPacketSize = sys_cpu_to_le16(mps);
+			usbd_ep_bm_set(class_ep_bm, ep);
+			usbd_ep_bm_set(config_ep_bm, ep);
+		}
+
+		return ret;
+	}
+
 	for (unsigned int idx = 1; idx < 16U; idx++) {
 		uint16_t mps = sys_le16_to_cpu(ed->wMaxPacketSize);
 		uint8_t ep;
