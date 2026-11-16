@@ -22,6 +22,13 @@ description: |
             backlight: backlight {
                     compatible = "badgeteam,mch2022-rp2040-backlight";
             };
+
+            rp2040_gpio: gpio {
+                    compatible = "badgeteam,mch2022-rp2040-gpio";
+                    gpio-controller;
+                    #gpio-cells = <2>;
+                    ngpios = <2>;
+            };
     };
 
 compatible: "badgeteam,mch2022-rp2040"
