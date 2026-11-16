@@ -488,6 +488,7 @@ SECTIONS
     *libzephyr.a:esp_psram.*(.literal .literal.* .text .text.*)
     *libzephyr.a:mspi_timing_config.*(.literal .literal.* .text .text.*)
     *libzephyr.a:mspi_timing_tuning.*(.literal .literal.* .text .text.*)
+    *libzephyr.a:mspi_timing_by_dqs.*(.literal .literal.* .text .text.*)
     *libzephyr.a:mspi_timing_by_mspi_delay.*(.literal .literal.* .text .text.*)
 
     /* [mapping:esp_mm] */
@@ -717,6 +718,7 @@ SECTIONS
     *libzephyr.a:esp_psram.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:mspi_timing_config.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:mspi_timing_tuning.*(.rodata .rodata.* .srodata .srodata.*)
+    *libzephyr.a:mspi_timing_by_dqs.*(.rodata .rodata.* .srodata .srodata.*)
     *libzephyr.a:mspi_timing_by_mspi_delay.*(.rodata .rodata.* .srodata .srodata.*)
 
     /* [mapping:esp_mm] */
