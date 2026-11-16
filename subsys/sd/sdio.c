@@ -668,6 +668,7 @@ int sdio_card_init(struct sd_card *card)
 
 	/* If card and host support 4 bit bus, enable it */
 	if (IS_ENABLED(CONFIG_SDHC_SUPPORTS_NATIVE_MODE) &&
+		card->host_props.bus_4_bit_support &&
 		((card->cccr_flags & SDIO_SUPPORT_HS) ||
 		(card->cccr_flags & SDIO_SUPPORT_4BIT_LS_BUS))) {
 		/* Raise bus width to 4 bits */
