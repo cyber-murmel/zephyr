@@ -57,6 +57,16 @@ config PMP_NO_LOCK_GLOBAL
 config MAIN_STACK_SIZE
 	default 2048
 
+if SMP
+
+config MP_MAX_NUM_CPUS
+	default 2
+
+config SCHED_CPU_MASK
+	default y
+
+endif # SMP
+
 endif # SOC_SERIES_ESP32S31
 
 if SOC_ESP32S31_LPCORE

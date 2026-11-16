@@ -16,14 +16,21 @@
 #include <riscv/interrupt.h>
 #include <soc/interrupts.h>
 #include <soc/hp_sys_clkrst_reg.h>
+#include <soc/hp_system_reg.h>
 
 extern void esp_reset_reason_init(void);
 extern FUNC_NORETURN void z_cstart(void);
 
-static void core_intr_matrix_clear(void)
+/* The HAL's restart, flash and sleep code knows of a second core under SMP only. */
+BUILD_ASSERT(IS_ENABLED(CONFIG_SMP) || CONFIG_MP_MAX_NUM_CPUS == 1,
+	     "ESP32-S31: a second CPU needs CONFIG_SMP");
+
+void esp_core_intr_matrix_clear(void)
 {
+	unsigned int core_id = esp_cpu_get_core_id();
+
 	for (int i = 0; i < ETS_MAX_INTR_SOURCE; i++) {
-		interrupt_clic_ll_route(0, i, ETS_INVALID_INUM);
+		interrupt_clic_ll_route(core_id, i, ETS_INVALID_INUM);
 	}
 
 	for (int i = 0; i < 32; i++) {
@@ -43,14 +50,10 @@ void IRAM_ATTR __esp_platform_app_start(void)
 			 : "t0");
 #endif
 
-	if (!IS_ENABLED(CONFIG_SMP)) {
-		/* Keep CPU1 clock gated and in reset */
-		REG_CLR_BIT(HP_SYS_CLKRST_HPCORE1_CTRL0_REG, HP_SYS_CLKRST_REG_CORE1_CPU_CLK_EN);
-		REG_CLR_BIT(HP_SYS_CLKRST_HPCORE1_CTRL0_REG, HP_SYS_CLKRST_REG_CORE1_CLIC_CLK_EN);
-		REG_SET_BIT(HP_SYS_CLKRST_HPCORE1_CTRL0_REG, HP_SYS_CLKRST_REG_CORE1_GLOBAL_RST_EN);
-	}
+	/* As ESP-IDF does at start. */
+	esp_cpu_branch_prediction_enable();
 
-	core_intr_matrix_clear();
+	esp_core_intr_matrix_clear();
 
 	esp_reset_reason_init();
 
@@ -59,6 +62,20 @@ void IRAM_ATTR __esp_platform_app_start(void)
 	esp_flash_config();
 
 	esp_efuse_init_virtual();
+
+#if defined(CONFIG_SMP)
+	extern void esp_appcpu_start(void);
+
+	/* Keep the WFI clock running: an idle core in WFI takes interrupts. */
+	REG_SET_BIT(HP_SYSTEM_CPU_WAITI_CONF_REG, HP_SYSTEM_CPU_WAIT_MODE_FORCE_ON);
+
+	esp_appcpu_start();
+#else
+	/* Keep CPU1 clock gated and in reset */
+	REG_CLR_BIT(HP_SYS_CLKRST_HPCORE1_CTRL0_REG, HP_SYS_CLKRST_REG_CORE1_CPU_CLK_EN);
+	REG_CLR_BIT(HP_SYS_CLKRST_HPCORE1_CTRL0_REG, HP_SYS_CLKRST_REG_CORE1_CLIC_CLK_EN);
+	REG_SET_BIT(HP_SYS_CLKRST_HPCORE1_CTRL0_REG, HP_SYS_CLKRST_REG_CORE1_GLOBAL_RST_EN);
+#endif
 
 	z_cstart();
 

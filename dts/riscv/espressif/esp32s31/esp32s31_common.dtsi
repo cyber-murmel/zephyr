@@ -438,6 +438,34 @@
 			status = "okay";
 		};
 
+		ipi0: ipi@20586010 {
+			compatible = "espressif,crosscore-interrupt";
+			reg = <0x20586010 0x4>;
+			interrupts = <CPU_INTR_FROM_CPU_0_SOURCE IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+		};
+
+		ipi1: ipi@20586014 {
+			compatible = "espressif,crosscore-interrupt";
+			reg = <0x20586014 0x4>;
+			interrupts = <CPU_INTR_FROM_CPU_1_SOURCE IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+		};
+
+		ipi2: ipi@20586018 {
+			compatible = "espressif,crosscore-interrupt";
+			reg = <0x20586018 0x4>;
+			interrupts = <CPU_INTR_FROM_CPU_2_SOURCE 3 0>;
+			interrupt-parent = <&intc>;
+		};
+
+		ipi3: ipi@2058601c {
+			compatible = "espressif,crosscore-interrupt";
+			reg = <0x2058601c 0x4>;
+			interrupts = <CPU_INTR_FROM_CPU_3_SOURCE 3 0>;
+			interrupt-parent = <&intc>;
+		};
+
 		rtc_timer: rtc_timer@20800000 {
 			compatible = "espressif,esp32-rtc-timer";
 			reg = <0x20800000 DT_SIZE_K(1)>;
