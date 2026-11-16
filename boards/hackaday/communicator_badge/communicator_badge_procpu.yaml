@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: communicator_badge/esp32s3/procpu
+name: Hackaday Communicator Badge PROCPU
+type: mcu
+arch: xtensa
+toolchain:
+  - zephyr
+supported:
+  - gpio
+  - i2c
+  - spi
+  - uart
+  - counter
+  - watchdog
+  - entropy
+  - dma
+  - input
+  - display
+  - lora
+  - led
+vendor: hackaday

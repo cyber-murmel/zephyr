@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_COMMUNICATOR_BADGE_ESP32S3_PROCPU
+
+# The ESP32-S3-WROOM-1-N16R8 module has octal PSRAM
+choice SPIRAM_MODE
+	default SPIRAM_MODE_OCT
+endchoice
+
+# The display SPI bus transfers through GDMA
+config DMA
+	default y if SPI
+
+endif # BOARD_COMMUNICATOR_BADGE_ESP32S3_PROCPU
