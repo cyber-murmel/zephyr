@@ -892,7 +892,12 @@ static int IRAM_ATTR spi_esp32_configure(const struct device *dev,
 		.clk_src_hz = clk_src_hz,
 	};
 
-	spi_hal_cal_clock_conf(&timing_param, &hal_dev->timing_conf);
+	/* Fails when reads would need dummy cycles, which only half duplex has */
+	if (spi_hal_cal_clock_conf(&timing_param, &hal_dev->timing_conf) != ESP_OK) {
+		LOG_ERR("%u Hz needs half-duplex or use-iomux", spi_cfg->frequency);
+		ctx->config = NULL;
+		return -EINVAL;
+	}
 
 #ifdef SPI_LL_SRC_PRE_DIV_MAX
 	hal_dev->timing_conf.source_pre_div = pre_div;
