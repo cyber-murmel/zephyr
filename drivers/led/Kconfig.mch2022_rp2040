@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config LED_MCH2022_RP2040
+	bool "MCH2022 badge LCD backlight"
+	default y
+	depends on DT_HAS_BADGETEAM_MCH2022_RP2040_BACKLIGHT_ENABLED
+	depends on MFD_MCH2022_RP2040
+	help
+	  Enable the driver for the MCH2022 badge's LCD backlight, dimmed by
+	  its RP2040 coprocessor. The backlight is LED 0.
