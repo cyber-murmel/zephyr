@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  MCH2022 badge buttons and joystick, read through the RP2040 coprocessor
+
+  Must be a child of a badgeteam,mch2022-rp2040 node.
+
+compatible: "badgeteam,mch2022-rp2040-input"
+
+properties:
+  int-gpios:
+    type: phandle-array
+    description: |
+      The coprocessor's active-low interrupt line, asserted when a button
+      changes. The buttons are polled when it is not set.
+
+  poll-period-ms:
+    type: int
+    default: 30
+    description: |
+      Polling period without an interrupt line. The coprocessor samples the
+      buttons every 30 ms.
+
+  zephyr,codes:
+    type: array
+    required: true
+    description: |
+      Input codes for HOME, MENU, START, A (accept), B (back), SELECT,
+      joystick left, joystick press, joystick down, joystick up and joystick
+      right, in this order. A code of 0 leaves the button unreported.

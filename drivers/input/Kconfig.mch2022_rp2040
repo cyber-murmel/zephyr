@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config INPUT_MCH2022_RP2040
+	bool "MCH2022 badge buttons"
+	default y
+	depends on DT_HAS_BADGETEAM_MCH2022_RP2040_INPUT_ENABLED
+	depends on MFD_MCH2022_RP2040
+	help
+	  Enable the driver for the MCH2022 badge's buttons and joystick, read
+	  through its RP2040 coprocessor.
