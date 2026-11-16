@@ -85,8 +85,8 @@ static uint32_t gpio_esp32_isr_core;
 struct gpio_esp32_config {
 	/* gpio_driver_config needs to be first */
 	struct gpio_driver_config drv_cfg;
+	/* The registers of both ports count from here: not every SoC mirrors them at gpio1's. */
 	gpio_dev_t *const gpio_base;
-	gpio_dev_t *const gpio_dev;
 	const int gpio_port;
 };
 
@@ -204,7 +204,7 @@ static int IRAM_ATTR gpio_esp32_config(const struct device *dev, gpio_pin_t pin,
 
 	if (flags & GPIO_OUTPUT) {
 
-		if (!gpio_pin_is_output_capable(pin)) {
+		if (!gpio_pin_is_output_capable(io_pin)) {
 			LOG_ERR("GPIO can only be used as input");
 			ret = -EINVAL;
 			goto end;
@@ -350,10 +350,10 @@ static int gpio_esp32_port_get_raw(const struct device *port, uint32_t *value)
 	const struct gpio_esp32_config *const cfg = port->config;
 
 	if (cfg->gpio_port == 0) {
-		*value = cfg->gpio_dev->in;
+		*value = cfg->gpio_base->in;
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	} else {
-		*value = cfg->gpio_dev->in1.val;
+		*value = cfg->gpio_base->in1.val;
 #endif
 	}
 
@@ -367,10 +367,10 @@ static int gpio_esp32_port_set_masked_raw(const struct device *port, uint32_t ma
 	k_spinlock_key_t key = k_spin_lock(&gpio_esp32_lock);
 
 	if (cfg->gpio_port == 0) {
-		cfg->gpio_dev->out = (cfg->gpio_dev->out & ~mask) | (mask & value);
+		cfg->gpio_base->out = (cfg->gpio_base->out & ~mask) | (mask & value);
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	} else {
-		cfg->gpio_dev->out1.val = (cfg->gpio_dev->out1.val & ~mask) | (mask & value);
+		cfg->gpio_base->out1.val = (cfg->gpio_base->out1.val & ~mask) | (mask & value);
 #endif
 	}
 
@@ -384,10 +384,10 @@ static int gpio_esp32_port_set_bits_raw(const struct device *port, uint32_t pins
 	const struct gpio_esp32_config *const cfg = port->config;
 
 	if (cfg->gpio_port == 0) {
-		cfg->gpio_dev->out_w1ts = pins;
+		cfg->gpio_base->out_w1ts = pins;
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	} else {
-		cfg->gpio_dev->out1_w1ts.val = pins;
+		cfg->gpio_base->out1_w1ts.val = pins;
 #endif
 	}
 
@@ -399,10 +399,10 @@ static int gpio_esp32_port_clear_bits_raw(const struct device *port, uint32_t pi
 	const struct gpio_esp32_config *const cfg = port->config;
 
 	if (cfg->gpio_port == 0) {
-		cfg->gpio_dev->out_w1tc = pins;
+		cfg->gpio_base->out_w1tc = pins;
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	} else {
-		cfg->gpio_dev->out1_w1tc.val = pins;
+		cfg->gpio_base->out1_w1tc.val = pins;
 #endif
 	}
 
@@ -415,10 +415,10 @@ static int gpio_esp32_port_toggle_bits(const struct device *port, uint32_t pins)
 	k_spinlock_key_t key = k_spin_lock(&gpio_esp32_lock);
 
 	if (cfg->gpio_port == 0) {
-		cfg->gpio_dev->out ^= pins;
+		cfg->gpio_base->out ^= pins;
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	} else {
-		cfg->gpio_dev->out1.val ^= pins;
+		cfg->gpio_base->out1.val ^= pins;
 #endif
 	}
 
@@ -665,7 +665,6 @@ static DEVICE_API(gpio, gpio_esp32_driver_api) = {
 	static struct gpio_esp32_config gpio_config_##_id = {                                      \
 		.drv_cfg = GPIO_COMMON_CONFIG_FROM_DT_INST(_id),                                   \
 		.gpio_base = (gpio_dev_t *)DT_REG_ADDR(DT_NODELABEL(gpio0)),                       \
-		.gpio_dev = (gpio_dev_t *)DT_REG_ADDR(DT_NODELABEL(gpio##_id)),                    \
 		.gpio_port = _id};                                                                 \
 	PM_DEVICE_DT_INST_DEFINE(_id, gpio_esp32_pm_action);                                       \
 	DEVICE_DT_INST_DEFINE(_id, &gpio_esp32_init, PM_DEVICE_DT_INST_GET(_id), &gpio_data_##_id, \
