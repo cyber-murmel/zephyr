@@ -123,6 +123,9 @@ void IRAM_ATTR __esp_platform_app_start(void)
 			 : "t0");
 #endif
 
+	/* As ESP-IDF does at start; otherwise only a flash cache restore turns it on. */
+	esp_cpu_branch_prediction_enable();
+
 	esp_core_intr_matrix_clear();
 
 	esp_reset_reason_init();
