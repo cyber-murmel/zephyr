@@ -303,6 +303,20 @@
 			status = "disabled";
 		};
 
+		lcd_cam: lcd_cam@20396000 {
+			compatible = "espressif,esp32-lcd-cam";
+			reg = <0x20396000 DT_SIZE_K(4)>;
+			clocks = <&clock ESP32_LCD_CAM_MODULE>;
+			interrupts = <LCD_CAM_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			status = "disabled";
+
+			lcd_cam_rgb: lcd_cam_rgb {
+				compatible = "espressif,esp32-lcd-cam-rgb";
+				status = "disabled";
+			};
+		};
+
 		systimer0: systimer@20399000 {
 			compatible = "espressif,esp32-systimer";
 			reg = <0x20399000 DT_SIZE_K(4)>;

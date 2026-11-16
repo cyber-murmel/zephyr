@@ -273,6 +273,36 @@
 #define ESP_PARLIO_TX_DATA8_OUT  196 /**< PARLIO TX data 8 output */
 #define ESP_PARLIO_TX_DATA9_OUT  197 /**< PARLIO TX data 9 output */
 
+/* LCD_CAM's LCD side (values from the SoC's gpio_sig_map.h). */
+#define ESP_LCD_PCLK     149 /**< LCD pixel clock output */
+#define ESP_LCD_H_ENABLE 151 /**< LCD data enable output */
+#define ESP_LCD_H_SYNC   152 /**< LCD horizontal sync output */
+#define ESP_LCD_V_SYNC   153 /**< LCD vertical sync output */
+#define ESP_LCD_DATA_OUT0  154 /**< LCD data 0 output */
+#define ESP_LCD_DATA_OUT1  155 /**< LCD data 1 output */
+#define ESP_LCD_DATA_OUT2  156 /**< LCD data 2 output */
+#define ESP_LCD_DATA_OUT3  157 /**< LCD data 3 output */
+#define ESP_LCD_DATA_OUT4  158 /**< LCD data 4 output */
+#define ESP_LCD_DATA_OUT5  159 /**< LCD data 5 output */
+#define ESP_LCD_DATA_OUT6  160 /**< LCD data 6 output */
+#define ESP_LCD_DATA_OUT7  161 /**< LCD data 7 output */
+#define ESP_LCD_DATA_OUT8  162 /**< LCD data 8 output */
+#define ESP_LCD_DATA_OUT9  163 /**< LCD data 9 output */
+#define ESP_LCD_DATA_OUT10 164 /**< LCD data 10 output */
+#define ESP_LCD_DATA_OUT11 165 /**< LCD data 11 output */
+#define ESP_LCD_DATA_OUT12 166 /**< LCD data 12 output */
+#define ESP_LCD_DATA_OUT13 167 /**< LCD data 13 output */
+#define ESP_LCD_DATA_OUT14 168 /**< LCD data 14 output */
+#define ESP_LCD_DATA_OUT15 169 /**< LCD data 15 output */
+#define ESP_LCD_DATA_OUT16 170 /**< LCD data 16 output */
+#define ESP_LCD_DATA_OUT17 171 /**< LCD data 17 output */
+#define ESP_LCD_DATA_OUT18 172 /**< LCD data 18 output */
+#define ESP_LCD_DATA_OUT19 173 /**< LCD data 19 output */
+#define ESP_LCD_DATA_OUT20 174 /**< LCD data 20 output */
+#define ESP_LCD_DATA_OUT21 175 /**< LCD data 21 output */
+#define ESP_LCD_DATA_OUT22 176 /**< LCD data 22 output */
+#define ESP_LCD_DATA_OUT23 177 /**< LCD data 23 output */
+
 #define ESP_SIG_GPIO_OUT 256 /**< GPIO output signal */
 
 /** @endcond */
