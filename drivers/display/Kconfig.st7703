@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config ST7703
+	bool "ST7703 display panel driver"
+	default y
+	depends on DT_HAS_SITRONIX_ST7703_ENABLED
+	select MIPI_DSI
+	select GPIO if $(dt_compat_any_has_prop,$(DT_COMPAT_SITRONIX_ST7703),bl-gpios) || \
+		$(dt_compat_any_has_prop,$(DT_COMPAT_SITRONIX_ST7703),reset-gpios)
+	help
+	  Enable driver for the Sitronix ST7703 MIPI DSI panel controller.
+
+config DISPLAY_ST7703_INIT_PRIORITY
+	int "Initialization priority"
+	depends on ST7703
+	default MIPI_DSI_INIT_PRIORITY
+	help
+	  ST7703 display driver initialization priority. The panel attaches
+	  to the MIPI DSI host, so it has to initialize after the host.
