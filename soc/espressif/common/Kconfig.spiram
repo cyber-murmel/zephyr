@@ -253,6 +253,13 @@ config SPIRAM_SPIWP_SD3_PIN
 
 endif # SOC_SERIES_ESP32
 
+config ESP32_WIFI_NET_ALLOC_SPIRAM
+	bool "Allocate memory of WiFi and NET in SPIRAM"
+	help
+	  Allocate memory of WiFi and NET stack in SPIRAM, increasing available RAM memory space
+	  for application stack. This also applies to the network stack alone, without the
+	  Wi-Fi driver.
+
 menu "Relocate BSS to PSRAM"
 	depends on ESP_SPIRAM
 

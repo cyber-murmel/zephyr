@@ -77,13 +77,6 @@ config ESP32_WIFI_STA_SCAN_ALL
 	  highest RSSI. Without this, a fast scan is performed which connects to the first AP
 	  found.
 
-config ESP32_WIFI_NET_ALLOC_SPIRAM
-	bool "Allocate memory of WiFi and NET in SPIRAM"
-	depends on ESP_SPIRAM
-	help
-	  Allocate memory of WiFi and NET stack in SPIRAM, increasing available RAM memory space
-	  for application stack.
-
 config ESP32_WIFI_STATIC_RX_BUFFER_NUM
 	int "Max number of WiFi static RX buffers"
 	range 2 25
