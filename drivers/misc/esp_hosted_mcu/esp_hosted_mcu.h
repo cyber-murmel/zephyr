@@ -257,6 +257,22 @@ uint32_t esp_hosted_mcu_fw_version(void);
  */
 int esp_hosted_mcu_rpc_call(Rpc *req, Rpc *resp, int32_t timeout);
 
+/* Largest image chunk one OTA write request carries within one frame. */
+#define ESP_HOSTED_MCU_OTA_CHUNK_SIZE (1400)
+
+/*
+ * Over-the-air update of the coprocessor firmware: begin erases the
+ * coprocessor's next OTA partition, write appends up to
+ * ESP_HOSTED_MCU_OTA_CHUNK_SIZE bytes of the image, end verifies it. Firmware
+ * before v2.6.0 then selects the new image and restarts on its own; later
+ * firmware does so on activate. Each returns the coprocessor esp_err_t
+ * status, or a negative errno on transport/timeout failure.
+ */
+int esp_hosted_mcu_ota_begin(void);
+int esp_hosted_mcu_ota_write(const uint8_t *buf, size_t len);
+int esp_hosted_mcu_ota_end(void);
+int esp_hosted_mcu_ota_activate(void);
+
 /*
  * Build a payload header around payload/len and send it over the transport.
  * pkt_type is placed in the header's per-interface type byte (0 for Wi-Fi

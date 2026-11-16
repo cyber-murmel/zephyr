@@ -7,6 +7,9 @@
 *.bssid max_size:6
 *.mac max_size:6
 
+# OTA image chunks point at the caller's buffer instead of growing every Rpc.
+*.ota_data type:FT_POINTER
+
 # Scan results are variable-count and can be large; keep them off the
 # static message and let nanopb malloc them via a callback pointer.
 *.ap_records type:FT_POINTER
