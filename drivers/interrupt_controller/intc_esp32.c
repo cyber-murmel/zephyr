@@ -96,6 +96,8 @@ SYS_INIT(intc_line_table_init, PRE_KERNEL_1, 0);
 
 /* This bitmask has an 1 if the int should be disabled when the flash is disabled. */
 static uint32_t non_iram_int_mask[CONFIG_MP_MAX_NUM_CPUS];
+/* Lines allocated with ESP_INTR_FLAG_IRAM, the only ones safe while the cache is off. */
+static uint32_t iram_int_mask[CONFIG_MP_MAX_NUM_CPUS];
 /* This bitmask has 1 in it if the int was disabled using esp_intr_noniram_disable. */
 static uint32_t non_iram_int_disabled[CONFIG_MP_MAX_NUM_CPUS];
 static uint32_t non_iram_int_disable_nest[CONFIG_MP_MAX_NUM_CPUS];
@@ -774,9 +776,11 @@ int esp_intr_alloc_intrstatus(int source,
 	if (flags & ESP_INTR_FLAG_IRAM) {
 		vd->flags |= VECDESC_FL_INIRAM;
 		non_iram_int_mask[cpu] &= ~(1 << intr);
+		iram_int_mask[cpu] |= (1 << intr);
 	} else {
 		vd->flags &= ~VECDESC_FL_INIRAM;
 		non_iram_int_mask[cpu] |= (1 << intr);
+		iram_int_mask[cpu] &= ~(1 << intr);
 	}
 	if (source >= 0) {
 		esp_rom_route_intr_matrix(cpu, source, intr);
@@ -871,9 +875,11 @@ int IRAM_ATTR esp_intr_set_in_iram(intr_handle_t handle, bool is_in_iram)
 	if (is_in_iram) {
 		vd->flags |= VECDESC_FL_INIRAM;
 		non_iram_int_mask[vd->cpu] &= ~mask;
+		iram_int_mask[vd->cpu] |= mask;
 	} else {
 		vd->flags &= ~VECDESC_FL_INIRAM;
 		non_iram_int_mask[vd->cpu] |= mask;
+		iram_int_mask[vd->cpu] &= ~mask;
 	}
 	k_spin_unlock(&s_intc_lock, key);
 	return 0;
@@ -947,6 +953,7 @@ int esp_intr_free(intr_handle_t handle)
 		handle->vector_desc->source = ETS_INTERNAL_UNUSED_INTR_SOURCE;
 		/* Also kill non_iram mask bit. */
 		non_iram_int_mask[handle->vector_desc->cpu] &= ~(1 << (handle->vector_desc->intno));
+		iram_int_mask[handle->vector_desc->cpu] &= ~(1 << (handle->vector_desc->intno));
 	}
 	k_spin_unlock(&s_intc_lock, key);
 
@@ -1144,8 +1151,9 @@ uint32_t IRAM_ATTR esp_intr_noniram_mask_local(void)
 		return 0U;
 	}
 
+	/* Lines enabled outside the allocator, such as the system tick, are not IRAM safe. */
 	key = arch_irq_lock();
-	masked = esp_cpu_intr_get_enabled_mask() & non_iram_int_mask[cpu];
+	masked = esp_cpu_intr_get_enabled_mask() & ~iram_int_mask[cpu];
 	esp_cpu_intr_disable(masked);
 	rtc_isr_noniram_disable(cpu);
 	arch_irq_unlock(key);

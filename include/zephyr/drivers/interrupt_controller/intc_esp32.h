@@ -331,8 +331,10 @@ void esp_intr_noniram_enable(void);
 /**
  * @brief Mask the non-IRAM interrupts of the calling core from an ISR
  *
- * Lock-free variant for the cross-core stall ISR. Lines already held masked
- * by esp_intr_noniram_disable() on this core are left alone. Must be paired
+ * Lock-free variant for the cross-core stall ISR. Masks every enabled line
+ * not allocated with ESP_INTR_FLAG_IRAM, including lines enabled outside the
+ * allocator such as the system tick. Lines already held masked by
+ * esp_intr_noniram_disable() on this core are left alone. Must be paired
  * with esp_intr_noniram_unmask_local() on the same core.
  *
  * @return Lines this call masked, to hand to esp_intr_noniram_unmask_local()
