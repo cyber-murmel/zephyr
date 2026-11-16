@@ -7286,7 +7286,7 @@ function(add_llext_target target_name)
   add_custom_command(
     OUTPUT ${llext_pkg_input}
     COMMAND "$<IF:${has_post_build_cmds},${noop_cmd},${copy_cmd}>"
-    DEPENDS ${llext_proc_target}
+    DEPENDS ${llext_proc_target} ${llext_lib_output}
     COMMAND_EXPAND_LISTS
   )
 
