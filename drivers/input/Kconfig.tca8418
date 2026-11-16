@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config INPUT_TCA8418
+	bool "TCA8418 keypad scan controller"
+	default y
+	depends on DT_HAS_TI_TCA8418_ENABLED
+	select I2C
+	help
+	  Enable driver for the TI TCA8418 I2C keypad scan controller.
