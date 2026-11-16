@@ -573,6 +573,9 @@ static int sx126x_init(const struct device *dev)
 }
 
 #define SX126X_DEFINE(node_id, sx_variant)                                                         \
+	BUILD_ASSERT(DT_NODE_HAS_PROP(node_id, busy_gpios) &&                                      \
+		     DT_NODE_HAS_PROP(node_id, dio1_gpios),                                        \
+		     "this backend needs busy-gpios and dio1-gpios");                             \
 	static const struct lbm_sx126x_config config_##node_id = {                                 \
 		.lbm_common.ralf = RALF_SX126X_INSTANTIATE(DEVICE_DT_GET(node_id)),                \
 		.lbm_common.force_ldro = DT_PROP(node_id, force_ldro),                             \

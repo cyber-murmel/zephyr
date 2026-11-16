@@ -16,7 +16,8 @@ properties:
   busy-gpios:
     type: phandle-array
     description: |
-      GPIO connected to the modem's BUSY signal.
+      GPIO connected to the modem's BUSY signal. Without it, each
+      command waits for its worst-case busy time instead.
 
   antenna-enable-gpios:
     type: phandle-array
@@ -39,7 +40,8 @@ properties:
     type: phandle-array
     description: |
       GPIO connected to DIO1. This GPIO will be used as a generic
-      IRQ line from the chip.
+      IRQ line from the chip. Without it, the IRQ status is polled
+      over SPI.
 
   dio2-tx-enable:
     type: boolean
