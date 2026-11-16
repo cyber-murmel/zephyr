@@ -13,6 +13,7 @@
 #include <hal/cache_hal.h>
 #include <hal/mmu_hal.h>
 #include <hal/mmu_ll.h>
+#include <rom/ets_sys.h>
 
 #include <soc/cpu_apm_reg.h>
 #include <soc/hp_apm_reg.h>
@@ -34,6 +35,18 @@ const static char *TAG = "hw_init";
 int hardware_init(void)
 {
 	int err = 0;
+
+	/* After a power-on or system reset CPU1 is clock gated and held in
+	 * reset, and the calls below leave it so. A CPU reset (esp_restart())
+	 * leaves its clock and reset as they were, and its boot address and
+	 * stall sit in the always-on domain: after an SMP image's restart CPU1
+	 * is clocked, stalled and has an entry point. Clear the address, then
+	 * reset and unstall CPU1, so that it waits in the ROM for a boot address
+	 * instead of staying stalled or running stale code.
+	 */
+	ets_set_appcpu_boot_addr(0);
+	esp_cpu_reset(1);
+	esp_cpu_unstall(1);
 
 	soc_hw_init();
 	ana_reset_config();
