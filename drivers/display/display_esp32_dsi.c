@@ -18,6 +18,12 @@
 
 #include <hal/mipi_dsi_brg_ll.h>
 #include <hal/dw_gdma_ll.h>
+#if defined(CONFIG_DISPLAY_ESP32_DSI_PPA)
+#include <hal/dma2d_ll.h>
+#include <hal/dma2d_types.h>
+#include <hal/ppa_ll.h>
+#include <soc/dma2d_channel.h>
+#endif
 #include <soc/interrupts.h>
 #include <esp_intr_alloc.h>
 
@@ -39,6 +45,9 @@ LOG_MODULE_REGISTER(display_esp32_dsi, CONFIG_DISPLAY_LOG_LEVEL);
  */
 #define DISPLAY_ESP32_DSI_FRAME_WAIT_MS 100
 
+/* Source rows a transposed write moves at a time: 64 bytes of each framebuffer row at RGB565. */
+#define DISPLAY_ESP32_DSI_SWAP_BAND 32U
+
 struct display_esp32_dsi_config {
 	const struct device *panel;
 	uint8_t dma_channel;
@@ -48,6 +57,7 @@ struct display_esp32_dsi_config {
 	uint16_t width;
 	uint16_t height;
 	uint32_t pixel_format;
+	bool swap_xy;
 };
 
 struct display_esp32_dsi_data {
@@ -65,6 +75,16 @@ struct display_esp32_dsi_data {
 	bool have_last_fb;
 	bool fb_seeded;
 	bool started;
+	/* Turned panels: the framebuffer rows a frame touched, written back when it ends. */
+	uint16_t dirty_lo, dirty_hi;
+	bool dirty;
+	/* Two framebuffers: the rectangle (framebuffer rows and columns) the frame being drawn
+	 * changed, and the one the frame on screen changed, which the buffer drawn into next
+	 * misses; dmg_prev_all: unknown, all of it.
+	 */
+	uint16_t dmg_r0, dmg_r1, dmg_c0, dmg_c1;
+	uint16_t dmg_prev_r0, dmg_prev_r1, dmg_prev_c0, dmg_prev_c1;
+	bool dmg, dmg_prev, dmg_prev_all;
 	uint32_t writers;
 	void *prev_buf;
 	intr_handle_t dma_intr;
@@ -82,6 +102,264 @@ struct display_esp32_dsi_data {
 	dw_gdma_link_list_item_t lli[CONFIG_DISPLAY_ESP32_DSI_FB_NUM + DISPLAY_ESP32_DSI_EXT_FB_NUM]
 		__aligned(DW_GDMA_LL_LINK_LIST_ALIGNMENT);
 };
+
+/* The cache write-back masks interrupts for the whole range it is given (esp_cache_msync), and
+ * a frame is a megabyte or more: write large ranges back in pieces, so that interrupts are
+ * never held off long (a UART at a few Mbaud overruns its FIFO within a quarter millisecond).
+ */
+#define DISPLAY_ESP32_DSI_FLUSH_CHUNK 4096U
+
+static void display_esp32_dsi_flush(void *addr, size_t size)
+{
+	uint8_t *p = addr;
+
+	while (size > 0U) {
+		size_t n = MIN(size, (size_t)DISPLAY_ESP32_DSI_FLUSH_CHUNK);
+
+		sys_cache_data_flush_range(p, n);
+		p += n;
+		size -= n;
+	}
+}
+
+#if defined(CONFIG_DISPLAY_ESP32_DSI_PPA)
+/*
+ * Turned panels through the pixel-processing accelerator: its scale-rotate-mirror engine reads
+ * the caller's buffer and writes the transposed block straight into the framebuffer, fed and
+ * drained by 2D-DMA TX and RX channel 0 (the sequence of ESP-IDF's ppa_srm.c). The block goes
+ * to memory by DMA: the framebuffer needs no cache write-back, the source a write-back first.
+ */
+#define DSI_PPA_DMA_CH     0
+#define DSI_PPA_TIMEOUT_US 100000
+
+static dma2d_descriptor_align8_t dsi_ppa_tx_desc __aligned(CONFIG_DCACHE_LINE_SIZE);
+static dma2d_descriptor_align8_t dsi_ppa_rx_desc __aligned(CONFIG_DCACHE_LINE_SIZE);
+static bool dsi_ppa_ready;
+
+static void dsi_ppa_init(void)
+{
+	dma2d_dev_t *dma = DMA2D_LL_GET_HW(0);
+
+	ppa_ll_enable_bus_clock(true);
+	ppa_ll_reset_register();
+	dma2d_ll_enable_bus_clock(0, true);
+	dma2d_ll_reset_register(0);
+	dma2d_ll_hw_enable(dma, true);
+	dsi_ppa_ready = true;
+}
+
+static void dsi_ppa_tx_setup(dma2d_dev_t *dma, uint32_t ch, uint32_t blk_h, uint32_t blk_v)
+{
+	dma2d_ll_tx_stop(dma, ch);
+	dma2d_ll_tx_abort(dma, ch, true);
+	while (!dma2d_ll_tx_is_reset_avail(dma, ch)) {
+	}
+	dma2d_ll_tx_reset_channel(dma, ch);
+	dma2d_ll_tx_abort(dma, ch, false);
+	dma2d_ll_tx_connect_to_periph(dma, ch, DMA2D_TRIG_PERIPH_PPA_SRM,
+				      SOC_DMA2D_TRIG_PERIPH_PPA_SRM_TX);
+	dma2d_ll_tx_enable_reorder(dma, ch, false);
+	dma2d_ll_tx_enable_dscr_port(dma, ch, true);
+	dma2d_ll_tx_enable_owner_check(dma, ch, false);
+	dma2d_ll_tx_enable_auto_write_back(dma, ch, false);
+	dma2d_ll_tx_enable_eof_mode(dma, ch, true);
+	dma2d_ll_tx_enable_descriptor_burst(dma, ch, true);
+	dma2d_ll_tx_set_data_burst_length(dma, ch, PPA_DATA_BURST_LENGTH_128);
+	dma2d_ll_tx_enable_page_bound_wrap(dma, ch, true);
+	dma2d_ll_tx_set_macro_block_size(dma, ch, DMA2D_MACRO_BLOCK_SIZE_NONE);
+	dma2d_ll_tx_set_dscr_port_block_size(dma, ch, blk_h, blk_v);
+	dma2d_ll_tx_enable_interrupt(dma, ch, UINT32_MAX, false);
+	dma2d_ll_tx_clear_interrupt_status(dma, ch, UINT32_MAX);
+}
+
+static void dsi_ppa_rx_setup(dma2d_dev_t *dma, uint32_t ch)
+{
+	dma2d_ll_rx_stop(dma, ch);
+	dma2d_ll_rx_abort(dma, ch, true);
+	while (!dma2d_ll_rx_is_reset_avail(dma, ch)) {
+	}
+	dma2d_ll_rx_reset_channel(dma, ch);
+	dma2d_ll_rx_abort(dma, ch, false);
+	dma2d_ll_rx_connect_to_periph(dma, ch, DMA2D_TRIG_PERIPH_PPA_SRM,
+				      SOC_DMA2D_TRIG_PERIPH_PPA_SRM_RX);
+	dma2d_ll_rx_enable_reorder(dma, ch, false);
+	dma2d_ll_rx_enable_dscr_port(dma, ch, true);
+	dma2d_ll_rx_enable_owner_check(dma, ch, false);
+	dma2d_ll_rx_set_auto_return_owner(dma, ch, DMA2D_DESCRIPTOR_BUFFER_OWNER_CPU);
+	dma2d_ll_rx_enable_descriptor_burst(dma, ch, true);
+	dma2d_ll_rx_set_data_burst_length(dma, ch, PPA_DATA_BURST_LENGTH_128);
+	dma2d_ll_rx_enable_page_bound_wrap(dma, ch, true);
+	dma2d_ll_rx_set_macro_block_size(dma, ch, DMA2D_MACRO_BLOCK_SIZE_NONE);
+	dma2d_ll_rx_enable_interrupt(dma, ch, UINT32_MAX, false);
+	dma2d_ll_rx_clear_interrupt_status(dma, ch, UINT32_MAX);
+	/* Not routed to the CPU: the status bits are polled. */
+	dma2d_ll_rx_enable_interrupt(dma, ch, DMA2D_LL_EVENT_RX_SUC_EOF |
+				     DMA2D_LL_EVENT_RX_DESC_ERROR, true);
+}
+
+/* An RGB565 picture for the engine: rows @p w pixels apart, @p h rows; a block at (x, y). */
+struct dsi_ppa_pic {
+	const void *buf;
+	uint16_t w, h, x, y;
+};
+
+/*
+ * A bw x bh block from @p in to @p out, transposed (source pixel (col, row) to row col, column
+ * row of the output block) or copied as it is. Waits for the engine; -ETIMEDOUT or -EIO when it
+ * did not finish cleanly.
+ */
+static int dsi_ppa_run(const struct dsi_ppa_pic *in, uint16_t bw, uint16_t bh,
+		       const struct dsi_ppa_pic *out, bool transpose)
+{
+	dma2d_dev_t *dma = DMA2D_LL_GET_HW(0);
+	ppa_dev_t *ppa = PPA_LL_GET_HW;
+	uint32_t blk_h, blk_v, st = 0;
+	uint32_t start;
+
+	if (!dsi_ppa_ready) {
+		dsi_ppa_init();
+	}
+	ppa_ll_srm_reset(ppa);
+
+	dsi_ppa_tx_desc = (dma2d_descriptor_align8_t){
+		.vb_size = bh,
+		.hb_length = bw,
+		.dma2d_en = 1,
+		.suc_eof = 1,
+		.owner = DMA2D_DESCRIPTOR_BUFFER_OWNER_DMA,
+		.va_size = in->h,
+		.ha_length = in->w,
+		.pbyte = DMA2D_DESCRIPTOR_PBYTE_2B0_PER_PIXEL,
+		.y = in->y,
+		.x = in->x,
+		.mode = DMA2D_DESCRIPTOR_BLOCK_RW_MODE_SINGLE,
+		.buffer = (void *)in->buf,
+		.next = NULL,
+	};
+	/* The RX block size is the engine's to fill in; 0 would raise a descriptor error. */
+	dsi_ppa_rx_desc = (dma2d_descriptor_align8_t){
+		.vb_size = 2,
+		.hb_length = 2,
+		.dma2d_en = 1,
+		.suc_eof = 1,
+		.owner = DMA2D_DESCRIPTOR_BUFFER_OWNER_DMA,
+		.va_size = out->h,
+		.ha_length = out->w,
+		.pbyte = DMA2D_DESCRIPTOR_PBYTE_2B0_PER_PIXEL,
+		.y = out->y,
+		.x = out->x,
+		.mode = DMA2D_DESCRIPTOR_BLOCK_RW_MODE_SINGLE,
+		.buffer = (void *)out->buf,
+		.next = NULL,
+	};
+	sys_cache_data_flush_range(&dsi_ppa_tx_desc, sizeof(dsi_ppa_tx_desc));
+	sys_cache_data_flush_range(&dsi_ppa_rx_desc, sizeof(dsi_ppa_rx_desc));
+
+	ppa_ll_srm_get_dma_dscr_port_mode_block_size(ppa, PPA_SRM_COLOR_MODE_RGB565,
+						    ppa_ll_srm_get_mb_size(ppa), &blk_h, &blk_v);
+	dsi_ppa_tx_setup(dma, DSI_PPA_DMA_CH, blk_h, blk_v);
+	dsi_ppa_rx_setup(dma, DSI_PPA_DMA_CH);
+	dma2d_ll_tx_set_desc_addr(dma, DSI_PPA_DMA_CH, (uint32_t)&dsi_ppa_tx_desc);
+	dma2d_ll_rx_set_desc_addr(dma, DSI_PPA_DMA_CH, (uint32_t)&dsi_ppa_rx_desc);
+	dma2d_ll_tx_start(dma, DSI_PPA_DMA_CH);
+	dma2d_ll_rx_start(dma, DSI_PPA_DMA_CH);
+
+	ppa_ll_srm_set_rx_color_mode(ppa, PPA_SRM_COLOR_MODE_RGB565);
+	ppa_ll_srm_enable_rx_byte_swap(ppa, false);
+	ppa_ll_srm_enable_rx_rgb_swap(ppa, false);
+	ppa_ll_srm_configure_rx_alpha(ppa, PPA_ALPHA_NO_CHANGE, 0);
+	ppa_ll_srm_set_tx_color_mode(ppa, PPA_SRM_COLOR_MODE_RGB565);
+	/* A transpose: 90 degrees, then mirrored in y (measured; 270 degrees mirrored in x
+	 * is the same).
+	 */
+	ppa_ll_srm_set_rotation_angle(ppa, transpose ? PPA_SRM_ROTATION_ANGLE_90
+						     : PPA_SRM_ROTATION_ANGLE_0);
+	ppa_ll_srm_set_scaling_x(ppa, 1, 0);
+	ppa_ll_srm_set_scaling_y(ppa, 1, 0);
+	ppa_ll_srm_enable_mirror_x(ppa, false);
+	ppa_ll_srm_enable_mirror_y(ppa, transpose);
+	ppa_ll_srm_start(ppa);
+
+	start = k_cycle_get_32();
+	while (k_cyc_to_us_floor32(k_cycle_get_32() - start) < DSI_PPA_TIMEOUT_US) {
+		st = dma2d_ll_rx_get_interrupt_status(dma, DSI_PPA_DMA_CH);
+		if (st != 0U) {
+			break;
+		}
+	}
+	dma2d_ll_rx_clear_interrupt_status(dma, DSI_PPA_DMA_CH, UINT32_MAX);
+	if (st == 0U) {
+		LOG_ERR("PPA block of %ux%u timed out", bw, bh);
+		return -ETIMEDOUT;
+	}
+	if ((st & DMA2D_LL_EVENT_RX_SUC_EOF) == 0U) {
+		LOG_ERR("PPA block of %ux%u failed: 0x%x", bw, bh, st);
+		return -EIO;
+	}
+	return 0;
+}
+
+/* The engine stalls on a block 32 n + 1 rows high (n > 0; BadgeVMS's compositor splits those
+ * too): such a block goes as two, the first this many rows.
+ */
+static uint16_t dsi_ppa_first_rows(uint16_t h)
+{
+	return (h > 32U && h % 32U == 1U) ? h / 2U : h;
+}
+
+/*
+ * The w x h block of RGB565 at @p src (rows @p pitch pixels apart) into the framebuffer @p fb
+ * (fb_w x fb_h) transposed: source pixel (col, row) to framebuffer row x + col, column y + row.
+ */
+static int dsi_ppa_write(const void *src, uint32_t pitch, uint16_t w, uint16_t h, uint8_t *fb,
+			 uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+{
+	uint16_t first = dsi_ppa_first_rows(h);
+	struct dsi_ppa_pic in = {.buf = src, .w = pitch, .h = first};
+	struct dsi_ppa_pic out = {.buf = fb, .w = fb_w, .h = fb_h, .x = y, .y = x};
+	int err;
+
+	/* The engine reads the source from memory. */
+	display_esp32_dsi_flush((void *)src, (size_t)pitch * h * 2U);
+	err = dsi_ppa_run(&in, w, first, &out, true);
+	if (err == 0 && first < h) {
+		in.buf = (const uint8_t *)src + (size_t)first * pitch * 2U;
+		in.h = h - first;
+		out.x = y + first;
+		err = dsi_ppa_run(&in, w, h - first, &out, true);
+	}
+	return err;
+}
+
+/* Rows r0..r0 + rows - 1, columns c0..c0 + cols - 1 of one framebuffer into another. */
+static int dsi_ppa_copy(const uint8_t *from, uint8_t *to, uint16_t fb_w, uint16_t fb_h,
+			uint16_t c0, uint16_t r0, uint16_t cols, uint16_t rows)
+{
+	uint16_t first = dsi_ppa_first_rows(rows);
+	struct dsi_ppa_pic in = {.buf = from, .w = fb_w, .h = fb_h, .x = c0, .y = r0};
+	struct dsi_ppa_pic out = {.buf = to, .w = fb_w, .h = fb_h, .x = c0, .y = r0};
+	int err = dsi_ppa_run(&in, cols, first, &out, false);
+
+	if (err == 0 && first < rows) {
+		in.y = r0 + first;
+		out.y = r0 + first;
+		err = dsi_ppa_run(&in, cols, rows - first, &out, false);
+	}
+	return err;
+}
+#else
+static inline int dsi_ppa_write(const void *src, uint32_t pitch, uint16_t w, uint16_t h,
+				uint8_t *fb, uint16_t fb_w, uint16_t fb_h, uint16_t x, uint16_t y)
+{
+	return -ENOTSUP;
+}
+
+static inline int dsi_ppa_copy(const uint8_t *from, uint8_t *to, uint16_t fb_w, uint16_t fb_h,
+			       uint16_t c0, uint16_t r0, uint16_t cols, uint16_t rows)
+{
+	return -ENOTSUP;
+}
+#endif /* CONFIG_DISPLAY_ESP32_DSI_PPA */
 
 static int display_esp32_dsi_writer_enter(struct display_esp32_dsi_data *data)
 {
@@ -465,7 +743,7 @@ int display_esp32_dsi_start(const struct device *dev, uint32_t bits_per_pixel)
 			return -ENOMEM;
 		}
 		memset(data->fb[i], 0, data->fb_size);
-		sys_cache_data_flush_range(data->fb[i], data->fb_size);
+		display_esp32_dsi_flush(data->fb[i], data->fb_size);
 	}
 
 	int err = display_esp32_dsi_dma_setup(dev);
@@ -556,9 +834,47 @@ int display_esp32_dsi_stop(const struct device *dev)
 	data->fb_count = 0;
 	data->have_last_fb = false;
 	data->fb_seeded = false;
+	data->dirty = false;
+	data->dmg = false;
+	data->dmg_prev_all = true;
 	data->prev_buf = NULL;
 
 	return 0;
+}
+
+/*
+ * Two framebuffers: the one about to be drawn into last held the frame before the one on
+ * screen, so it misses what that frame changed (all of it when that is unknown), copied over
+ * from the frame on screen. On a turned panel the PPA copies (the CPU never touches the
+ * framebuffers there, so DMA writes cannot meet stale cache lines).
+ */
+static void display_esp32_dsi_seed(const struct device *dev, uint8_t *to, const uint8_t *from)
+{
+	const struct display_esp32_dsi_config *config = dev->config;
+	struct display_esp32_dsi_data *data = dev->data;
+	uint8_t bpp = data->bytes_per_pixel;
+	uint32_t pitch = config->width * bpp;
+	uint16_t r0 = 0, r1 = config->height - 1U, c0 = 0, c1 = config->width - 1U;
+
+	if (!data->dmg_prev_all) {
+		if (!data->dmg_prev) {
+			return;
+		}
+		r0 = data->dmg_prev_r0;
+		r1 = data->dmg_prev_r1;
+		c0 = data->dmg_prev_c0;
+		c1 = data->dmg_prev_c1;
+	}
+	if (IS_ENABLED(CONFIG_DISPLAY_ESP32_DSI_PPA) && config->swap_xy && bpp == 2U &&
+	    dsi_ppa_copy(from, to, config->width, config->height, c0, r0, c1 - c0 + 1U,
+			 r1 - r0 + 1U) == 0) {
+		return;
+	}
+	for (uint32_t r = r0; r <= r1; r++) {
+		memcpy(to + r * pitch + (uint32_t)c0 * bpp, from + r * pitch + (uint32_t)c0 * bpp,
+		       (size_t)(c1 - c0 + 1U) * bpp);
+	}
+	display_esp32_dsi_flush(to + (uint32_t)r0 * pitch, (size_t)(r1 - r0 + 1U) * pitch);
 }
 
 static int display_esp32_dsi_write_locked(const struct device *dev, const uint16_t x,
@@ -596,8 +912,8 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		return -EINVAL;
 	}
 
-	if (x == 0 && y == 0 && write_w == config->width && write_h == config->height &&
-	    desc->pitch == config->width) {
+	if (!config->swap_xy && x == 0 && y == 0 && write_w == config->width &&
+	    write_h == config->height && desc->pitch == config->width) {
 		dw_gdma_link_list_item_t *lli;
 		int8_t index = display_esp32_dsi_index_of(data, buf);
 
@@ -618,7 +934,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 
 			lli = &data->lli[ext];
 
-			sys_cache_data_flush_range((void *)buf, data->fb_size);
+			display_esp32_dsi_flush((void *)buf, data->fb_size);
 
 			if (data->fb_count == 0U) {
 				display_esp32_dsi_describe_lli(data, lli);
@@ -640,7 +956,7 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			 * frame the DMA picks up is never the stale one still
 			 * sitting in the cache.
 			 */
-			sys_cache_data_flush_range((void *)buf, data->fb_size);
+			display_esp32_dsi_flush((void *)buf, data->fb_size);
 			display_esp32_dsi_present(data, index);
 
 			/* The caller draws the next frame as soon as this call
@@ -662,6 +978,8 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 			}
 
 			data->prev_buf = (void *)buf;
+			/* The driver's own frames no longer follow what is on screen. */
+			data->dmg_prev_all = true;
 
 			return 0;
 		}
@@ -688,22 +1006,105 @@ static int display_esp32_dsi_write_locked(const struct device *dev, const uint16
 		}
 
 		if (data->have_last_fb && data->last_fb != data->draw_fb) {
-			memcpy(fb, data->fb[data->last_fb], data->fb_size);
-			sys_cache_data_flush_range(fb, data->fb_size);
+			display_esp32_dsi_seed(dev, fb, data->fb[data->last_fb]);
 		}
 		data->fb_seeded = true;
 	}
 
-	for (uint16_t row = 0; row < write_h; row++) {
-		uint32_t dst_offset = (y + row) * dst_pitch + (uint32_t)x * bpp;
-		uint32_t src_offset = row * src_pitch;
+	if (IS_ENABLED(CONFIG_DISPLAY_ESP32_DSI_PPA) && config->swap_xy && bpp == 2U) {
+		int err = dsi_ppa_write(buf, desc->pitch, write_w, write_h, fb, config->width,
+					config->height, x, y);
 
-		memcpy(fb + dst_offset, (const uint8_t *)buf + src_offset, (size_t)write_w * bpp);
+		if (err != 0) {
+			return err;
+		}
+	} else if (config->swap_xy) {
+		/* The panel shows the framebuffer's columns as its rows: pixel (x, y)
+		 * goes to row x, column y. In bands of source rows, so that each
+		 * framebuffer row is written in runs rather than one pixel per cache
+		 * line.
+		 */
+		for (uint16_t r0 = 0; r0 < write_h; r0 += DISPLAY_ESP32_DSI_SWAP_BAND) {
+			uint16_t rows = MIN(DISPLAY_ESP32_DSI_SWAP_BAND, write_h - r0);
+
+			for (uint16_t col = 0; col < write_w; col++) {
+				const uint8_t *src = (const uint8_t *)buf +
+						     (uint32_t)r0 * src_pitch + (uint32_t)col * bpp;
+				uint8_t *dst = fb + (uint32_t)(x + col) * dst_pitch +
+					       (uint32_t)(y + r0) * bpp;
+
+				if (bpp == 2U) {
+					uint16_t *d = (uint16_t *)dst;
+
+					for (uint16_t row = 0; row < rows; row++) {
+						d[row] = *(const uint16_t *)(src + row * src_pitch);
+					}
+				} else {
+					for (uint16_t row = 0; row < rows; row++) {
+						memcpy(dst + row * bpp, src + row * src_pitch, bpp);
+					}
+				}
+			}
+		}
+
+		/* A write touches a short piece of many framebuffer rows: writing each back
+		 * cost one cache operation per row. The rows go back together once the frame
+		 * is complete (LVGL writes a frame in bands, the last without
+		 * frame_incomplete), in display_esp32_dsi_flush()'s pieces.
+		 */
+		if (!data->dirty) {
+			data->dirty_lo = x;
+			data->dirty_hi = x + write_w - 1U;
+			data->dirty = true;
+		} else {
+			data->dirty_lo = MIN(data->dirty_lo, x);
+			data->dirty_hi = MAX(data->dirty_hi, x + write_w - 1U);
+		}
+		if (!desc->frame_incomplete) {
+			display_esp32_dsi_flush(fb + (uint32_t)data->dirty_lo * dst_pitch,
+						(size_t)(data->dirty_hi - data->dirty_lo + 1U) *
+							dst_pitch);
+			data->dirty = false;
+		}
+	} else {
+		for (uint16_t row = 0; row < write_h; row++) {
+			uint32_t dst_offset = (y + row) * dst_pitch + (uint32_t)x * bpp;
+			uint32_t src_offset = row * src_pitch;
+
+			memcpy(fb + dst_offset, (const uint8_t *)buf + src_offset,
+			       (size_t)write_w * bpp);
+		}
+
+		display_esp32_dsi_flush(fb + (uint32_t)y * dst_pitch, (size_t)write_h * dst_pitch);
 	}
 
-	sys_cache_data_flush_range(fb + (uint32_t)y * dst_pitch, (size_t)write_h * dst_pitch);
+	/* What this frame changed, in framebuffer rows and columns. */
+	uint16_t r0 = config->swap_xy ? x : y;
+	uint16_t r1 = r0 + (config->swap_xy ? write_w : write_h) - 1U;
+	uint16_t c0 = config->swap_xy ? y : x;
+	uint16_t c1 = c0 + (config->swap_xy ? write_h : write_w) - 1U;
+
+	if (!data->dmg) {
+		data->dmg_r0 = r0;
+		data->dmg_r1 = r1;
+		data->dmg_c0 = c0;
+		data->dmg_c1 = c1;
+		data->dmg = true;
+	} else {
+		data->dmg_r0 = MIN(data->dmg_r0, r0);
+		data->dmg_r1 = MAX(data->dmg_r1, r1);
+		data->dmg_c0 = MIN(data->dmg_c0, c0);
+		data->dmg_c1 = MAX(data->dmg_c1, c1);
+	}
 
 	if (multi && !desc->frame_incomplete) {
+		data->dmg_prev_r0 = data->dmg_r0;
+		data->dmg_prev_r1 = data->dmg_r1;
+		data->dmg_prev_c0 = data->dmg_c0;
+		data->dmg_prev_c1 = data->dmg_c1;
+		data->dmg_prev = data->dmg;
+		data->dmg_prev_all = false;
+		data->dmg = false;
 		display_esp32_dsi_flip(data, data->draw_fb);
 		data->last_fb = data->draw_fb;
 		data->have_last_fb = true;
@@ -779,6 +1180,12 @@ static int display_esp32_dsi_read_locked(const struct device *dev, const uint16_
 	}
 
 	for (uint16_t row = 0; row < desc->height; row++) {
+#if defined(CONFIG_DISPLAY_ESP32_DSI_PPA)
+		/* The PPA writes the framebuffer behind the cache. */
+		sys_cache_data_invd_range((void *)(fb + (size_t)(y + row) * src_pitch +
+						   (size_t)x * bpp),
+					  (size_t)desc->width * bpp);
+#endif
 		memcpy((uint8_t *)buf + (size_t)row * dst_pitch,
 		       fb + (size_t)(y + row) * src_pitch + (size_t)x * bpp,
 		       (size_t)desc->width * bpp);
@@ -1019,6 +1426,9 @@ static int display_esp32_dsi_init(const struct device *dev)
 					   DISPLAY_ESP32_DSI_PANEL_OF)
 
 #define DISPLAY_ESP32_DSI_DEVICE(inst)                                                             \
+	BUILD_ASSERT(!DT_INST_PROP(inst, swap_xy) ||                                               \
+		     DT_INST_PROP(inst, width) == DT_INST_PROP(inst, height),                      \
+		     "swap-xy needs a square display");                                            \
 	static struct display_esp32_dsi_data display_esp32_dsi_data_##inst;                        \
 	static const struct device *const display_esp32_dsi_panels_##inst[] = {                    \
 		DISPLAY_ESP32_DSI_PANEL(inst)};                                                    \
@@ -1033,6 +1443,7 @@ static int display_esp32_dsi_init(const struct device *dev)
 		.width = DT_INST_PROP(inst, width),                                                \
 		.height = DT_INST_PROP(inst, height),                                              \
 		.pixel_format = DT_INST_PROP(inst, pixel_format),                                  \
+		.swap_xy = DT_INST_PROP(inst, swap_xy),                                            \
 	};                                                                                         \
 	DEVICE_DT_INST_DEFINE(inst, display_esp32_dsi_init, NULL, &display_esp32_dsi_data_##inst,  \
 			      &display_esp32_dsi_config_##inst, POST_KERNEL,                       \

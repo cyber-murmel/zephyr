@@ -32,3 +32,12 @@ properties:
     max: 3
     description: |
       2D-DMA channel that streams the framebuffer to the DSI bridge.
+
+  swap-xy:
+    type: boolean
+    description: |
+      The panel shows the framebuffer's columns as its rows, for example a
+      square panel mounted turned by 90 degrees whose controller cannot
+      exchange the axes in video mode. Writes then go into the framebuffer
+      transposed (combine with the panel's mirroring for the other
+      orientations). The display must be square.
