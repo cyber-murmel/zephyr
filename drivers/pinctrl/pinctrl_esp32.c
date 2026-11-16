@@ -151,6 +151,26 @@ end:
 	return ret;
 }
 
+/* strength is the pad's level (gpio_drive_cap_t). A pad that only takes input has no drive. */
+static void esp32_pin_set_drive(uint32_t pin, uint32_t strength)
+{
+	if (!esp32_pin_is_valid(pin) || !esp32_pin_is_output_capable(pin)) {
+		return;
+	}
+
+#if defined(CONFIG_SOC_SERIES_ESP32)
+	/*
+	 * On the ESP32 a pad with an RTC function takes its drive from the RTC IO registers, also
+	 * in digital mode, as in IDF's gpio_set_drive_capability().
+	 */
+	if (rtc_gpio_is_valid_gpio(pin)) {
+		rtcio_hal_set_drive_capability(rtc_io_num_map[pin], (gpio_drive_cap_t)strength);
+		return;
+	}
+#endif
+	gpio_ll_set_drive_capability(&GPIO, pin, (gpio_drive_cap_t)strength);
+}
+
 static int esp32_pin_configure(const uint32_t pin_mux, const uint32_t pin_cfg)
 {
 	uint32_t port_addr;
@@ -251,6 +271,11 @@ static int esp32_pin_configure(const uint32_t pin_mux, const uint32_t pin_cfg)
 	}
 
 	esp32_pin_apply_config(pin_num, flags);
+
+	/* Before the peripheral's signal reaches the pad: it never leaves with the old drive. */
+	if (ESP32_PIN_DRV_STR(pin_cfg) != 0U) {
+		esp32_pin_set_drive(pin_num, ESP32_PIN_DRV_STR(pin_cfg) - 1U);
+	}
 
 	if (flags & ESP32_DIR_OUT_FLAG) {
 		esp_rom_gpio_matrix_out(pin_num, sig_out, 0, 0);

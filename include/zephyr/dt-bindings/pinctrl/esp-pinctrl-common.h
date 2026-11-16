@@ -87,6 +87,7 @@
  * - output level [ 4 : 5 ]
  * - input/output enable override [ 6 : 7 ]
  * - sleep hold   [ 8 ]
+ * - drive strength [ 9 : 11 ] (the pad's level + 1, 0 leaves it)
  *
  * These values are combined into a single integer and later
  * translated into GPIO configuration flags by the driver.
@@ -106,6 +107,8 @@
 #define ESP32_PIN_EN_DIR_MASK      0x3U
 #define ESP32_PIN_SLEEP_HOLD_SHIFT 8U   /**< Sleep hold bit */
 #define ESP32_PIN_SLEEP_HOLD_MASK  0x1U /**< Sleep hold mask */
+#define ESP32_PIN_DRV_STR_SHIFT    9U   /**< Drive strength: the pad's level + 1, 0 if not set */
+#define ESP32_PIN_DRV_STR_MASK     0x7U /**< Drive strength mask */
 /** @} */
 
 /**

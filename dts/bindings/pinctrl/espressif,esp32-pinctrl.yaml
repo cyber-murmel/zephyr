@@ -152,6 +152,7 @@ child-binding:
           - bias-pull-up
           - drive-push-pull
           - drive-open-drain
+          - drive-strength
           - input-enable
           - output-enable
           - output-high
@@ -166,6 +167,18 @@ child-binding:
           Each array element represents pin muxing information of an individual
           pin. The array elements are pre-declared macros taken from Espressif's
           HAL.
+
+      drive-strength:
+        enum:
+          - 5
+          - 10
+          - 20
+          - 40
+        description: |
+          The output pads' drive strength in mA, nominal values of the pads' four levels (the SoC's
+          datasheet gives the real ones). A weaker drive slows the edges and lowers a fast
+          signal's harmonics. Left out, a pad keeps the drive it has, as does a pad that only
+          takes input. It applies to the pins of ESP32_PINMUX(), not to the EMAC's RMII pins.
 
       sleep-hold-en:
         type: boolean

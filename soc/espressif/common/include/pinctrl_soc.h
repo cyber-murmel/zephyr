@@ -35,6 +35,16 @@ typedef struct pinctrl_soc_pin {
 #define Z_PINCTRL_ESP32_PINMUX_INIT(node_id, prop, idx) DT_PROP_BY_IDX(node_id, prop, idx)
 
 /**
+ * @brief Utility macro to encode the drive-strength property as the pad's level + 1, 0 without it.
+ *
+ * The binding's enum lists the levels in order, 5 mA first.
+ *
+ * @param node_id Node identifier.
+ */
+#define Z_PINCTRL_ESP32_DRV_STR(node_id)                                                           \
+	((uint32_t)(DT_ENUM_IDX_OR(node_id, drive_strength, -1) + 1))
+
+/**
  * @brief Utility macro to initialize pincfg field in #pinctrl_pin_t.
  *
  * @param node_id Node identifier.
@@ -50,7 +60,8 @@ typedef struct pinctrl_soc_pin {
 	 ((ESP32_PIN_OUT_EN * DT_PROP(node_id, output_enable)) << ESP32_PIN_EN_DIR_SHIFT) |        \
 	 ((ESP32_PIN_IN_EN * DT_PROP(node_id, input_enable)) << ESP32_PIN_EN_DIR_SHIFT) |          \
 	 ((ESP32_PIN_SLEEP_HOLD_EN * DT_PROP(node_id, sleep_hold_en))                              \
-	  << ESP32_PIN_SLEEP_HOLD_SHIFT))
+	  << ESP32_PIN_SLEEP_HOLD_SHIFT) |                                                         \
+	 (Z_PINCTRL_ESP32_DRV_STR(node_id) << ESP32_PIN_DRV_STR_SHIFT))
 
 /**
  * @brief Utility macro to initialize each pin.

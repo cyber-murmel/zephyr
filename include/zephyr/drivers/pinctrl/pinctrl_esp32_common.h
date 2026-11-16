@@ -34,6 +34,9 @@
 #define ESP32_PIN_SLEEP_HOLD(_cfg)                                                                 \
 	(((_cfg) >> ESP32_PIN_SLEEP_HOLD_SHIFT) & ESP32_PIN_SLEEP_HOLD_MASK)
 
+/** @brief Extract drive strength from pin config: the pad's level + 1, 0 if not set */
+#define ESP32_PIN_DRV_STR(_cfg) (((_cfg) >> ESP32_PIN_DRV_STR_SHIFT) & ESP32_PIN_DRV_STR_MASK)
+
 /** @endcond */
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_PINCTRL_PINCTRL_ESP32_COMMON_H_ */
