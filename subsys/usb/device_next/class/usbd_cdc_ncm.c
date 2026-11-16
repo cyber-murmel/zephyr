@@ -1158,7 +1158,10 @@ static void usbd_cdc_ncm_shutdown(struct usbd_class_data *const c_data)
 	struct usbd_cdc_ncm_desc *desc = data->desc;
 
 	desc->if0_ecm.iMACAddress = 0;
-	sys_dlist_remove(&data->mac_desc_data->node);
+	/* Unregistering before usbd_init() shuts down a class that never added it. */
+	if (sys_dnode_is_linked(&data->mac_desc_data->node)) {
+		sys_dlist_remove(&data->mac_desc_data->node);
+	}
 }
 
 static const void *usbd_cdc_ncm_get_desc(struct usbd_class_data *const c_data,
