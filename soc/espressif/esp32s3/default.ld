@@ -1031,6 +1031,13 @@ SECTIONS
     *(.fini.literal)
     *(.fini)
     *(.gnu.version)
+
+    /*
+     * Ahead of the catch-all below, so that a snippet can claim input sections from it, for
+     * example to keep hot code at a fixed instruction cache position.
+     */
+    #include <snippets-text-sections.ld>
+
     *(.literal .text .literal.* .text.*)
 
     /* CPU will try to prefetch up to 16 bytes of
