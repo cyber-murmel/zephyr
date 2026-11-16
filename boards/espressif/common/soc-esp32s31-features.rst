@@ -123,6 +123,20 @@ The LP Core is in sleep mode by default. It has two application scenarios:
 - Power sensitive scenario: When the HP cores are in the power-down state to save power, the LP
   Core can be woken up to handle some external wake-up events.
 
+Symmetric Multiprocessing (SMP)
+===============================
+
+The two HP cores can run a single Zephyr image as an SMP system. This support is experimental.
+Enable it with:
+
+.. code:: cfg
+
+   CONFIG_SMP=y
+
+A flash write or erase suspends the caches, so the other core waits in IRAM, with its interrupts
+off, for its duration. A second CPU needs :kconfig:option:`CONFIG_SMP`, and
+:kconfig:option:`CONFIG_POWEROFF` is not available with it.
+
 For more information, check the `ESP32-S31 Datasheet`_.
 
 .. _`ESP32-S31 Datasheet`: https://documentation.espressif.com/esp32-s31_datasheet_en.html
