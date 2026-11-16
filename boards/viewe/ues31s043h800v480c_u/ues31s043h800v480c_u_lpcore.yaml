@@ -1,0 +1,19 @@
+identifier: ues31s043h800v480c_u/esp32s31/lpcore
+name: VIEWE PLCM-UES31S043H800V480C-U LP Core
+type: mcu
+arch: riscv
+toolchain:
+  - zephyr
+supported:
+  - cpu
+  - uart
+  - serial
+testing:
+  only_tags:
+    - introduction
+  ignore_tags:
+    - kernel
+    - posix
+    - chre
+    - cpp
+vendor: viewe

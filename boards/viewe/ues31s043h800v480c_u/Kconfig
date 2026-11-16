@@ -1,0 +1,7 @@
+# Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config HEAP_MEM_POOL_ADD_SIZE_BOARD
+	int
+	default 4096 if BOARD_UES31S043H800V480C_U_ESP32S31_HPCORE
+	default 256 if BOARD_UES31S043H800V480C_U_ESP32S31_LPCORE

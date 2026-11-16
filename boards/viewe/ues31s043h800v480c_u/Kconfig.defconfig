@@ -1,0 +1,28 @@
+# VIEWE PLCM-UES31S043H800V480C-U configuration
+
+# Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_UES31S043H800V480C_U_ESP32S31_HPCORE
+
+# The panel reads 50 MB/s out of the PSRAM. At 40 MHz a CPU using it too starves the panel.
+# Through the cache the CPU reads 90 MB/s at 250 MHz, 82 MB/s at 200 MHz.
+choice SPIRAM_SPEED
+	default SPIRAM_SPEED_250M
+endchoice
+
+# The XMC flash reads 28 MB/s through the cache in QIO, 16 MB/s in DIO.
+choice ESPTOOLPY_FLASHMODE
+	default ESPTOOLPY_FLASHMODE_QIO
+endchoice
+
+# A framebuffer takes 768 KB, two take 1.5 MB.
+configdefault ESP_SPIRAM_HEAP_SIZE
+	default 3145728 if DISPLAY_ESP32_LCD_RGB_DOUBLE_BUFFER
+	default 2097152 if DISPLAY_ESP32_LCD_RGB
+
+# Polled: a finger needs no more, and the board's interrupt line has not been tried.
+configdefault INPUT_GT911_PERIOD_MS
+	default 20
+
+endif # BOARD_UES31S043H800V480C_U_ESP32S31_HPCORE

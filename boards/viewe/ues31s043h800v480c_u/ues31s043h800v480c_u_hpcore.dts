@@ -1,0 +1,174 @@
+/*
+ * Copyright The Zephyr Project Contributors
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <espressif/esp32s31/esp32s31.dtsi>
+#include "ues31s043h800v480c_u_hpcore-pinctrl.dtsi"
+#include <zephyr/dt-bindings/display/panel.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/led/led.h>
+#include <espressif/partitions_0x2000_default_16M.dtsi>
+
+/ {
+	compatible = "viewe,ues31s043h800v480c-u", "espressif,esp32s31";
+	model = "VIEWE PLCM-UES31S043H800V480C-U HP Core";
+
+	chosen {
+		zephyr,sram = &sramhp;
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,canbus = &twai0;
+		zephyr,display = &lcd_cam_rgb;
+		zephyr,touch = &gt911;
+	};
+
+	aliases {
+		sw0 = &boot_button;
+		led-strip = &led_strip;
+		watchdog0 = &wdt0;
+	};
+
+	lvgl_pointer {
+		compatible = "zephyr,lvgl-pointer-input";
+		input = <&gt911>;
+	};
+
+	led_strip: ws2812 {
+		compatible = "worldsemi,ws2812-pulse-io";
+		pulse-ios = <&rmt 0>;
+		chain-length = <1>;
+		color-mapping = <LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_RED
+				 LED_COLOR_ID_BLUE>;
+		reset-delay = <300>;
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+
+		boot_button: button {
+			label = "Boot Button";
+			gpios = <&gpio1 29 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+};
+
+&flash0 {
+	reg = <0x0 DT_SIZE_M(16)>;
+	ranges = <0x0 0x0 DT_SIZE_M(16)>;
+};
+
+&psram0 {
+	size = <DT_SIZE_M(16)>;
+};
+
+&uart0 {
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&i2c0 {
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	gt911: gt911@5d {
+		compatible = "goodix,gt911";
+		reg = <0x5d>;
+		alt-addr = <0x14>;
+		/* Its configuration has a falling edge on a touch. */
+		irq-gpios = <&gpio1 6 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&rmt {
+	pinctrl-0 = <&rmt_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&twai0 {
+	pinctrl-0 = <&twai0_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&lcd_cam {
+	status = "okay";
+};
+
+&lcd_cam_rgb {
+	status = "okay";
+	pinctrl-0 = <&lcd_cam_rgb_default>;
+	pinctrl-names = "default";
+	width = <800>;
+	height = <480>;
+	pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+	backlight-gpios = <&gpio1 7 GPIO_ACTIVE_HIGH>;
+
+	/*
+	 * From the APLL at 25.1 MHz the pixel clock's multiples near 2.35 GHz read the noise
+	 * floor in 250 kHz, the floor between them 0 to 3 dB up. From PLL_F160M at 25 MHz they
+	 * are lines 9 to 12 dB over it. The lines at the PSRAM clock's multiples (2250, 2500
+	 * and 2750 MHz at 250 MHz) do not follow the pixel clock: they drop when the panel's DMA
+	 * stops.
+	 */
+	clock-source = "apll";
+
+	/*
+	 * Vendor BSP 1.0.1, but for a back porch of 32 lines instead of 8: 1.18 ms of vertical
+	 * blanking after the frame's start, which holds a radio burst of 16380 samples at 20 MS/s
+	 * (esp32_lcd_rgb.h). About 58 Hz. The panel takes data on PCLK's falling edge.
+	 */
+	display-timings {
+		compatible = "zephyr,panel-timing";
+		clock-frequency = <25100000>;
+		hsync-len = <4>;
+		hback-porch = <8>;
+		hfront-porch = <8>;
+		vsync-len = <4>;
+		vback-porch = <32>;
+		vfront-porch = <8>;
+		hsync-active = <0>;
+		vsync-active = <0>;
+		de-active = <1>;
+		pixelclk-active = <1>;
+	};
+};
+
+/* Internal LDO channel 1 powers the on-board PSRAM at 1.8 V. */
+&ldo {
+	status = "okay";
+
+	ldo1@1 {
+		regulator-init-microvolt = <1800000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};

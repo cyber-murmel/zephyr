@@ -1,0 +1,89 @@
+/*
+ * Copyright The Zephyr Project Contributors
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/pinctrl/esp32s31-pinctrl.h>
+
+&pinctrl {
+	/* The console, on the pads the CH340C USB-to-UART bridge is wired to. */
+	uart0_default: uart0_default {
+		group1 {
+			pinmux = <UART0_TX_GPIO58>;
+			output-high;
+		};
+
+		group2 {
+			pinmux = <UART0_RX_GPIO59>;
+			bias-pull-up;
+		};
+	};
+
+	/* The GT911 touch controller and the ES8389 codec. */
+	i2c0_default: i2c0_default {
+		group1 {
+			pinmux = <I2C0_SDA_GPIO0>,
+				 <I2C0_SCL_GPIO1>;
+			bias-pull-up;
+			drive-open-drain;
+			output-high;
+		};
+	};
+
+	/* The SIT1050T transceiver, also on the H1 header. */
+	twai0_default: twai0_default {
+		group1 {
+			pinmux = <TWAI0_TX_GPIO53>;
+			output-high;
+		};
+
+		group2 {
+			pinmux = <TWAI0_RX_GPIO54>;
+			bias-pull-up;
+		};
+	};
+
+	/* The WS2812 LED. */
+	rmt_default: rmt_default {
+		group1 {
+			pinmux = <RMT_OUT0_GPIO37>;
+		};
+	};
+
+	/*
+	 * The panel takes RGB666 on 18 wires: R2..R7 on GPIO2..7, G2..G7 on GPIO8..13, B2..B7 on
+	 * GPIO14..19. RGB565 is the 16 lines the controller drives, so the lowest red and the
+	 * lowest blue wire repeat the line above them: without that full scale would stop at 62/63.
+	 * The weakest drive took the pixel clock's lines near 2.35 GHz 5 to 7 dB down at a fixed
+	 * gain, measured with the clock from PLL_F160M at 25 MHz; the picture looked the same.
+	 */
+	lcd_cam_rgb_default: lcd_cam_rgb_default {
+		group1 {
+			pinmux = <ESP32_PINMUX(15, ESP_NOSIG, ESP_LCD_DATA_OUT0)>,  /* B3 */
+				 <ESP32_PINMUX(16, ESP_NOSIG, ESP_LCD_DATA_OUT1)>,  /* B4 */
+				 <ESP32_PINMUX(17, ESP_NOSIG, ESP_LCD_DATA_OUT2)>,  /* B5 */
+				 <ESP32_PINMUX(18, ESP_NOSIG, ESP_LCD_DATA_OUT3)>,  /* B6 */
+				 <ESP32_PINMUX(19, ESP_NOSIG, ESP_LCD_DATA_OUT4)>,  /* B7 */
+				 <ESP32_PINMUX(14, ESP_NOSIG, ESP_LCD_DATA_OUT4)>,  /* B2 */
+				 <ESP32_PINMUX(8, ESP_NOSIG, ESP_LCD_DATA_OUT5)>,   /* G2 */
+				 <ESP32_PINMUX(9, ESP_NOSIG, ESP_LCD_DATA_OUT6)>,   /* G3 */
+				 <ESP32_PINMUX(10, ESP_NOSIG, ESP_LCD_DATA_OUT7)>,  /* G4 */
+				 <ESP32_PINMUX(11, ESP_NOSIG, ESP_LCD_DATA_OUT8)>,  /* G5 */
+				 <ESP32_PINMUX(12, ESP_NOSIG, ESP_LCD_DATA_OUT9)>,  /* G6 */
+				 <ESP32_PINMUX(13, ESP_NOSIG, ESP_LCD_DATA_OUT10)>, /* G7 */
+				 <ESP32_PINMUX(3, ESP_NOSIG, ESP_LCD_DATA_OUT11)>,  /* R3 */
+				 <ESP32_PINMUX(4, ESP_NOSIG, ESP_LCD_DATA_OUT12)>,  /* R4 */
+				 <ESP32_PINMUX(5, ESP_NOSIG, ESP_LCD_DATA_OUT13)>,  /* R5 */
+				 <ESP32_PINMUX(6, ESP_NOSIG, ESP_LCD_DATA_OUT14)>,  /* R6 */
+				 <ESP32_PINMUX(7, ESP_NOSIG, ESP_LCD_DATA_OUT15)>,  /* R7 */
+				 <ESP32_PINMUX(2, ESP_NOSIG, ESP_LCD_DATA_OUT15)>,  /* R2 */
+				 <ESP32_PINMUX(40, ESP_NOSIG, ESP_LCD_PCLK)>,
+				 <ESP32_PINMUX(43, ESP_NOSIG, ESP_LCD_H_ENABLE)>,
+				 <ESP32_PINMUX(44, ESP_NOSIG, ESP_LCD_H_SYNC)>,
+				 <ESP32_PINMUX(45, ESP_NOSIG, ESP_LCD_V_SYNC)>;
+			output-low;
+			drive-strength = <5>;
+		};
+	};
+};

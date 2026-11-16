@@ -1,0 +1,28 @@
+identifier: ues31s043h800v480c_u/esp32s31/hpcore
+name: VIEWE PLCM-UES31S043H800V480C-U HP Core
+vendor: viewe
+type: mcu
+arch: riscv
+ram: 512
+flash: 16384
+toolchain:
+  - zephyr
+supported:
+  - adc
+  - can
+  - counter
+  - crypto
+  - display
+  - dma
+  - entropy
+  - gpio
+  - hwinfo
+  - i2c
+  - input
+  - led_strip
+  - pinctrl
+  - pulse_io
+  - pwm
+  - retained_mem
+  - uart
+  - watchdog

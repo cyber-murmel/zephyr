@@ -1,0 +1,6 @@
+board:
+  name: ues31s043h800v480c_u
+  full_name: VIEWE PLCM-UES31S043H800V480C-U
+  vendor: viewe
+  socs:
+  - name: esp32s31
