@@ -28,6 +28,9 @@ On Xtensa, the interrupt handlers keep the stack that each interrupt interrupted
 The backend spills the register windows and walks that stack with the architecture's backtrace
 code, so a sample starts at the interrupted instruction.
 
+On SMP systems with IPI support, the CPU the timer fires on samples itself and sends an IPI to the
+other CPUs, which sample themselves in the IPI handler.
+
 The :zephyr_file:`scripts/profiling/stackcollapse.py` script can be used to convert return addresses
 in the stack trace to function names using symbols from the ELF file, and to prints them in the
 format expected by `FlameGraph`_.
@@ -50,6 +53,13 @@ walking support, and a uniprocessor configuration. The Xtensa backend requires
 
 Usage
 *****
+
+``perf record <duration> <frequency> [thread_id [cpu_mask]]`` samples for ``duration``
+milliseconds at ``frequency`` hertz. ``thread_id``, in hexadecimal, keeps the samples of one
+thread; ``0`` keeps all threads. ``cpu_mask``, in hexadecimal, selects the CPUs to sample and
+defaults to all of them. A CPU outside the mask is neither sampled nor sent an IPI, so code with
+tight timing can run undisturbed on it while the other CPUs are profiled; the timer interrupt
+still fires on its own CPU. ``perf printbuf`` prints the samples and clears the buffer.
 
 Refer to the :zephyr:code-sample:`profiling-perf` sample for an example of how to use the perf tool.
 

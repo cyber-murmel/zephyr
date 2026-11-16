@@ -57,6 +57,8 @@ struct perf_data_t {
 	uintptr_t buf[CONFIG_PROFILING_PERF_BUFFER_SIZE];
 	bool buf_full;
 	k_tid_t target_thread;
+	/* CPUs to sample; the others are neither sampled nor sent an IPI */
+	uint32_t cpu_mask;
 
 	struct perf_stats stats;
 
@@ -145,13 +147,13 @@ static void perf_sampling_stop(void)
 
 static void perf_sample_other_cpus(void)
 {
-	if (!perf_data.sampling_active || arch_num_cpus() <= 1) {
+	uint32_t cpu_mask = perf_data.cpu_mask & ~BIT(CPU_ID);
+
+	if (!perf_data.sampling_active || cpu_mask == 0U) {
 		return;
 	}
 
-	/* The current CPU is filtered out by k_ipi_work_add() */
-	if (k_ipi_work_add(&perf_data.ipi_work, BIT_MASK(arch_num_cpus()),
-			   perf_ipi_handler) != 0) {
+	if (k_ipi_work_add(&perf_data.ipi_work, cpu_mask, perf_ipi_handler) != 0) {
 		/* Previous broadcast is still in flight, skip this period */
 		return;
 	}
@@ -207,7 +209,9 @@ static void perf_tracer(struct k_timer *timer)
 
 	atomic_inc(&perf_data.stats.timer_fires);
 
-	perf_do_sample();
+	if ((perf_data.cpu_mask & BIT(CPU_ID)) != 0U) {
+		perf_do_sample();
+	}
 	perf_sample_other_cpus();
 }
 
@@ -249,15 +253,32 @@ static int cmd_perf_record(const struct shell *sh, size_t argc, char **argv)
 	k_timeout_t duration = K_MSEC(strtoll(argv[1], NULL, 10));
 	k_timeout_t period = K_NSEC(1000000000 / strtoll(argv[2], NULL, 10));
 	k_tid_t target_thread = NULL;
+	uint32_t cpu_mask = BIT_MASK(arch_num_cpus());
 
-	/* If third argument is provided, use it as thread id */
+	/* If third argument is provided, use it as thread id; 0 traces all threads */
 	if (argc >= 4) {
 		target_thread = (k_tid_t)strtoul(argv[3], NULL, 16);
-		shell_print(sh, "Tracing thread: %p", target_thread);
+		if (target_thread != NULL) {
+			shell_print(sh, "Tracing thread: %p", target_thread);
+		}
+	}
+
+	/* If fourth argument is provided, use it as the mask of the CPUs to sample */
+	if (argc >= 5) {
+		int err = 0;
+		unsigned long mask = shell_strtoul(argv[4], 16, &err);
+
+		if (err != 0 || mask == 0UL || (mask & ~(unsigned long)cpu_mask) != 0UL) {
+			shell_error(sh, "Invalid CPU mask: %s", argv[4]);
+			return -EINVAL;
+		}
+		cpu_mask = (uint32_t)mask;
+		shell_print(sh, "Sampling CPUs: 0x%x", cpu_mask);
 	}
 
 	perf_data.sh = sh;
 	perf_data.target_thread = target_thread;
+	perf_data.cpu_mask = cpu_mask;
 	perf_stats_reset(&perf_data.stats);
 
 	shell_print(sh, "Number of CPUs: %u", arch_num_cpus());
@@ -323,11 +344,12 @@ static int cmd_perf_print(const struct shell *sh, size_t argc, char **argv)
 
 #define CMD_HELP_RECORD                                                                            \
 	"Start recording for <duration> ms on <frequency> Hz\n"                                    \
-	"Usage: record <duration> <frequency> [thread_id]\n"                                       \
-	"  thread_id: optional thread ID in hex format to trace specific thread"
+	"Usage: record <duration> <frequency> [thread_id [cpu_mask]]\n"                            \
+	"  thread_id: optional thread ID in hex format to trace specific thread, 0 for all\n"      \
+	"  cpu_mask: optional mask of the CPUs to sample in hex format, all by default"
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
-	m_sub_perf, SHELL_CMD_ARG(record, NULL, CMD_HELP_RECORD, cmd_perf_record, 3, 1),
+	m_sub_perf, SHELL_CMD_ARG(record, NULL, CMD_HELP_RECORD, cmd_perf_record, 3, 2),
 	SHELL_CMD_ARG(printbuf, NULL, "Print the perf buffer", cmd_perf_print, 0, 0),
 	SHELL_CMD_ARG(clear, NULL, "Clear the perf buffer", cmd_perf_clear, 0, 0),
 	SHELL_CMD_ARG(info, NULL, "Print the perf info", cmd_perf_info, 0, 0),
