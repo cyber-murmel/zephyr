@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config NV3007
+	bool "NV3007 display driver"
+	default y
+	depends on DT_HAS_NEWVISION_NV3007_ENABLED
+	select MIPI_DBI
+	help
+	  Enable driver for the New Vision NV3007 TFT LCD controller.
