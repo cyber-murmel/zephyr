@@ -53,7 +53,10 @@ static ALWAYS_INLINE void IRAM_ATTR stall_trigger_set(int other, bool assert_lin
 	}
 }
 
-/* The parked core keeps its IRAM lines open so the radio handlers keep running. */
+/*
+ * On Xtensa the parked core keeps its IRAM lines open so the radio handlers keep running. On
+ * RISC-V it takes no interrupt at all: the trap entry cleared mstatus.MIE.
+ */
 #if defined(CONFIG_XTENSA)
 static ALWAYS_INLINE uint32_t IRAM_ATTR stall_irq_open(void)
 {
