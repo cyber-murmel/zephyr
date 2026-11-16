@@ -24,6 +24,10 @@ walker.
 The Cortex-M backend is unavailable for Non-secure Trusted Execution images because
 Secure exception frames are inaccessible to Non-secure firmware.
 
+On Xtensa, the interrupt handlers keep the stack that each interrupt interrupted while they run.
+The backend spills the register windows and walks that stack with the architecture's backtrace
+code, so a sample starts at the interrupted instruction.
+
 The :zephyr_file:`scripts/profiling/stackcollapse.py` script can be used to convert return addresses
 in the stack trace to function names using symbols from the ELF file, and to prints them in the
 format expected by `FlameGraph`_.
@@ -41,7 +45,8 @@ You can configure this module using the following options:
 
 Architecture backends may require additional stack-unwind support. The Cortex-M backend
 requires SysTick, thread stack information, extra exception information, Arm stack
-walking support, and a uniprocessor configuration.
+walking support, and a uniprocessor configuration. The Xtensa backend requires
+:kconfig:option:`CONFIG_XTENSA_ENABLE_BACKTRACE`.
 
 Usage
 *****

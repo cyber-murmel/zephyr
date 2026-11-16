@@ -22,3 +22,10 @@ zephyr_sources_ifdef(CONFIG_PROFILING_PERF_BACKEND_X86_64
 zephyr_sources_ifdef(CONFIG_PROFILING_PERF_BACKEND_ARM64
   perf_arm64.c
 )
+
+if(CONFIG_PROFILING_PERF_BACKEND_XTENSA)
+  # The backtrace walker is internal to the architecture (xtensa_backtrace.h).
+  zephyr_library()
+  zephyr_library_sources(perf_xtensa.c)
+  zephyr_library_include_directories(${ARCH_DIR}/${ARCH}/include)
+endif()

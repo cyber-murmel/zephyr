@@ -14,7 +14,14 @@ struct _cpu_arch {
 #if CONFIG_MP_MAX_NUM_CPUS > 1
 	atomic_ptr_val_t save_hifi;  /* Save HiFi on IPI if match hifi_owner */
 #endif
-#elif defined(__cplusplus)
+#endif
+#if defined(CONFIG_PROFILING_PERF) && defined(CONFIG_PROFILING_PERF_BACKEND_XTENSA)
+	/* Interrupted stack of the innermost interrupt on this CPU, NULL outside one (perf) */
+	int *irq_frame;
+#endif
+#if !defined(CONFIG_XTENSA_LAZY_HIFI_SHARING) &&                                                 \
+	!(defined(CONFIG_PROFILING_PERF) && defined(CONFIG_PROFILING_PERF_BACKEND_XTENSA)) &&     \
+	defined(__cplusplus)
 	/* An empty struct is not valid C, and compilers that accept it give
 	 * it size 0 while C++ gives 1. Keep a byte so both languages agree.
 	 */

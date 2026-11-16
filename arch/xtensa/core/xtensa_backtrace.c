@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
+
 #include "xtensa/corebits.h"
 #include "xtensa_backtrace.h"
 #include <zephyr/arch/xtensa/xtensa_ptr.h>
@@ -164,4 +166,40 @@ int xtensa_backtrace_print(int depth, int *interrupted_stack)
 	}
 
 	return ret;
+}
+
+int xtensa_backtrace_collect(int *interrupted_stack, uintptr_t *buf, size_t size)
+{
+	_xtensa_irq_stack_frame_raw_t *frame = (void *)interrupted_stack;
+	struct xtensa_backtrace_frame_t stk_frame;
+	size_t n = 0;
+
+	if (size == 0U) {
+		return 0;
+	}
+
+	if (!xtensa_is_frame_pointer_valid(frame)) {
+		return -EINVAL;
+	}
+
+	stk_frame.cause = frame->ptr_to_bsa->exccause;
+	stk_frame.mask = XTENSA_BACKTRACE_DEFAULT_PC_MASK;
+
+	xtensa_backtrace_get_start(&(stk_frame.pc), &(stk_frame.sp), &(stk_frame.next_pc),
+				   interrupted_stack);
+
+	if (stk_frame.cause != EXCCAUSE_INSTR_PROHIBITED) {
+		stk_frame.mask = stk_frame.pc & 0xc0000000;
+	}
+
+	/* The interrupted instruction itself, not a return address */
+	buf[n++] = stk_frame.pc;
+
+	while ((n < size) && (stk_frame.next_pc != 0U) &&
+	       xtensa_backtrace_get_next_frame(&stk_frame)) {
+		buf[n++] = xtensa_cpu_process_stack_pc(stk_frame.pc, stk_frame.mask,
+						       stk_frame.cause);
+	}
+
+	return (int)n;
 }

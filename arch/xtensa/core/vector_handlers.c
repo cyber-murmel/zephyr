@@ -512,12 +512,25 @@ __unused static void xtensa_handle_irq_lvl(int irq_lvl)
 #endif
 }
 
+#if defined(CONFIG_PROFILING_PERF) && defined(CONFIG_PROFILING_PERF_BACKEND_XTENSA)
+/* The innermost interrupted context, which perf walks from (see perf_xtensa.c). */
+#define IRQ_FRAME_ENTER(f)                                                                         \
+	int *irq_frame_prev = arch_curr_cpu()->arch.irq_frame;                                     \
+	arch_curr_cpu()->arch.irq_frame = (f)
+#define IRQ_FRAME_EXIT() (arch_curr_cpu()->arch.irq_frame = irq_frame_prev)
+#else
+#define IRQ_FRAME_ENTER(f)
+#define IRQ_FRAME_EXIT()
+#endif
+
 #define DEF_INT_C_HANDLER(l)                                                                       \
 	__unused void *xtensa_int##l##_c(void *interrupted_stack)                                  \
 	{                                                                                          \
+		IRQ_FRAME_ENTER(interrupted_stack);                                                \
 		isr_enter_hook();                                                                  \
 		usage_stop();                                                                      \
 		xtensa_handle_irq_lvl(l);                                                          \
+		IRQ_FRAME_EXIT();                                                                  \
 		return return_to(interrupted_stack);                                               \
 	}
 

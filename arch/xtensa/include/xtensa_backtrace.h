@@ -14,6 +14,7 @@ extern "C" {
 #ifndef __ASSEMBLER__
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /**
@@ -100,6 +101,22 @@ bool xtensa_backtrace_get_next_frame(struct xtensa_backtrace_frame_t *frame);
  *      - -1   Backtrace is corrupted
  */
 int xtensa_backtrace_print(int depth, int *interrupted_stack);
+
+/**
+ * @brief Collect the call chain of an interrupted context
+ *
+ * Spills the register windows and walks from @p interrupted_stack as
+ * xtensa_backtrace_print() does: the interrupted program counter first,
+ * then one address per caller, pointing into its call instruction.
+ *
+ * @param interrupted_stack Pointer to interrupted stack
+ * @param buf Buffer for the addresses
+ * @param size Number of entries in @p buf
+ *
+ * @return Number of addresses stored, 0 if @p size is 0, or -EINVAL if the
+ *         interrupted stack is not valid
+ */
+int xtensa_backtrace_collect(int *interrupted_stack, uintptr_t *buf, size_t size);
 
 /**
  * @}
