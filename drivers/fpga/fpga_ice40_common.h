@@ -49,6 +49,7 @@
 		.creset_delay_us = DT_INST_PROP(inst, creset_delay_us),                            \
 		.leading_clocks = DT_INST_PROP(inst, leading_clocks),                              \
 		.trailing_clocks = DT_INST_PROP(inst, trailing_clocks),                            \
+		.creset_hold = DT_INST_PROP_OR(inst, creset_hold, false),                          \
 		.load_handler = load_handler_,                                                     \
 		.derived_config = derived_config_,                                                 \
 	}
@@ -80,6 +81,7 @@ struct fpga_ice40_config {
 	uint16_t config_delay_us;
 	uint8_t leading_clocks;
 	uint8_t trailing_clocks;
+	bool creset_hold;
 	k_work_handler_t load_handler;
 	const void *derived_config;
 };
