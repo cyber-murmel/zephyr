@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+board:
+  name: why2025_badge
+  full_name: WHY2025 Badge
+  vendor: why2025
+  socs:
+  - name: esp32p4
+  - name: esp32c6

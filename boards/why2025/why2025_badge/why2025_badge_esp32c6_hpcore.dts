@@ -1,0 +1,116 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <espressif/esp32c6/esp32c6.dtsi>
+#include "why2025_badge_esp32c6_hpcore-pinctrl.dtsi"
+#include <espressif/partitions_0x0_default_8M.dtsi>
+
+/*
+ * ESP32-C6-WROOM-1-N8 on the carrier board. Its USB-Serial-JTAG reaches
+ * USB-C port J8 only while the ESP32-P4 drives GPIO2 high
+ * (CONFIG_WHY2025_BADGE_USB_TO_C6), and its enable line is ESP32-P4 GPIO12.
+ */
+/ {
+	model = "WHY2025 Badge ESP32-C6";
+	compatible = "espressif,esp32c6";
+
+	chosen {
+		zephyr,sram = &sramhp;
+		zephyr,console = &usb_serial;
+		zephyr,shell-uart = &usb_serial;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,ieee802154 = &ieee802154;
+		zephyr,bt-hci = &esp32_bt_hci;
+	};
+
+	aliases {
+		lora0 = &lora;
+		watchdog0 = &wdt0;
+	};
+};
+
+&flash0 {
+	reg = <0x0 DT_SIZE_M(8)>;
+	ranges = <0x0 0x0 DT_SIZE_M(8)>;
+};
+
+&gpio0 {
+	status = "okay";
+
+	/*
+	 * Control inputs of the two AP3032 backlight boost converters; high is
+	 * full brightness. The pins can be handed to ledc0 for dimming.
+	 */
+	display_backlight {
+		gpio-hog;
+		gpios = <15 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "display-backlight";
+	};
+
+	keyboard_backlight {
+		gpio-hog;
+		gpios = <10 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "keyboard-backlight";
+	};
+};
+
+/*
+ * The schematic names an Ai-Thinker Ra-01H (SX1276); badges carry the Ra-01SH (SX1262) on the
+ * same footprint. Its BUSY, DIO1 and RXEN pads (Ra-01H DIO4, DIO1, DIO5) are not connected:
+ * the driver waits out BUSY and polls the IRQ status. Pad 5 (Ra-01H DIO0) is TXEN. The SMA
+ * connector J5 is not fitted.
+ */
+&spi2 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	pinctrl-0 = <&spim2_default>;
+	pinctrl-names = "default";
+
+	lora: lora@0 {
+		compatible = "semtech,sx1262";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(4)>;
+		reset-gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+		tx-enable-gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* UART1 of the ESP32-P4 */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+};
+
+&usb_serial {
+	status = "okay";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&wifi {
+	status = "okay";
+};
+
+&ieee802154 {
+	status = "okay";
+};
+
+&esp32_bt_hci {
+	status = "okay";
+};
